@@ -22,7 +22,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "line-harness"
-database_id = "YOUR_DEV_D1_DATABASE_ID"
+database_id = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
 
 [[r2_buckets]]
 binding = "IMAGES"
@@ -45,7 +45,7 @@ MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/down
 WORKER_PUBLIC_URL = "https://line-harness.workers.dev"
 ADMIN_PUBLIC_URL = "https://line-harness-admin.pages.dev"
 LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
-CF_ACCOUNT_ID = "YOUR_DEV_ACCOUNT_ID"
+CF_ACCOUNT_ID = "32f0604527684aab4d27b5eb4d3d759e"
 
 # ═══════════════════════════════════════════════════════════════
 # 本番環境
