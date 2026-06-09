@@ -1,4 +1,4 @@
-name = "line-harness-oss"
+name = "line-harness"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -26,7 +26,7 @@ bucket_name = "line-harness-images"
 crons = ["*/5 * * * *", "0 */6 * * *"]
 
 [vars]
-WORKER_NAME = "line-harness-oss"
+WORKER_NAME = "line-harness"
 ADMIN_PAGES_PROJECT = "line-harness-admin"
 LIFF_PAGES_PROJECT = "line-harness-liff"
 D1_DATABASE_ID = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
@@ -37,7 +37,7 @@ LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
 CF_ACCOUNT_ID = "32f0604527684aab4d27b5eb4d3d759e"
 
 # ═══════════════════════════════════════════════════════════════
-# 本番環境（ダミーを全部排除して、上の動く設定と合体させたよ）
+# 本番環境
 # ═══════════════════════════════════════════════════════════════
 [env.production]
 account_id = "32f0604527684aab4d27b5eb4d3d759e"
@@ -59,7 +59,7 @@ bucket_name = "line-harness-images"
 crons = ["*/5 * * * *", "0 */6 * * *"]
 
 [env.production.vars]
-WORKER_NAME = "line-harness-oss"
+WORKER_NAME = "line-harness"
 ADMIN_PAGES_PROJECT = "line-harness-admin"
 LIFF_PAGES_PROJECT = "line-harness-liff"
 D1_DATABASE_ID = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
