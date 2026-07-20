@@ -11,7 +11,7 @@ export function registerManageForms(server: McpServer): void {
       formId: z.string().optional().describe("Form ID (required for get, update, delete)"),
       name: z.string().optional().describe("Form name (for update)"),
       description: z.string().nullable().optional().describe("Form description (for update)"),
-      fields: z.string().optional().describe("JSON string of form fields array (for update)"),
+      fields: z.string().optional().describe("JSON string of form fields array (for update). Field type can be 'text'|'email'|'tel'|'number'|'textarea'|'select'|'radio'|'checkbox'|'date'|'heading'. 'heading' is a display-only section header (no input). All labels support manual line breaks with \\n."),
       onSubmitTagId: z.string().nullable().optional().describe("Tag to add on submit (for update)"),
       onSubmitScenarioId: z.string().nullable().optional().describe("Scenario to enroll on submit (for update)"),
       onSubmitMessageType: z.enum(["text", "flex"]).nullable().optional().describe("Custom message type to send after form submission (for update). Supports template variables: {{name}}, {{auth_url:CHANNEL_ID}}"),

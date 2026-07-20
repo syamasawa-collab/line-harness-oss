@@ -15,7 +15,7 @@ export function registerCreateForm(server: McpServer): void {
       fields: z
         .string()
         .describe(
-          "JSON string of form fields. Format: [{ name: string, label: string, type: 'text'|'email'|'tel'|'number'|'textarea'|'select'|'radio'|'checkbox'|'date', required?: boolean, options?: string[], placeholder?: string }]",
+          "JSON string of form fields. Format: [{ name: string, label: string, type: 'text'|'email'|'tel'|'number'|'textarea'|'select'|'radio'|'checkbox'|'date'|'heading', required?: boolean, options?: string[], placeholder?: string }]. Use type 'heading' for a display-only section header (no input; give it a unique name and required:false). All labels support manual line breaks with \\n.",
         ),
       onSubmitTagId: z
         .string()
