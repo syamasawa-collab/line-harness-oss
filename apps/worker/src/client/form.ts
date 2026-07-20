@@ -21,7 +21,7 @@ declare const liff: {
 };
 
 const UUID_STORAGE_KEY = 'lh_uuid';
-const FORM_VERSION = '2.1.0'; // cache buster
+const FORM_VERSION = '2.2.0'; // cache buster
 
 interface FormField {
   name: string;
@@ -65,6 +65,13 @@ interface FormState {
    * friend's first-touch attribution.
    */
   refTrackedLinkId: string | null;
+  /**
+   * The signed-in friend's stored metadata, returned by /api/liff/link.
+   * Used to pre-fill fields whose `name` matches a metadata key (e.g.
+   * company_name / respondent_name / email). Applied once, after render.
+   */
+  prefillMeta: Record<string, unknown> | null;
+  prefillApplied: boolean;
 }
 
 const state: FormState = {
@@ -75,6 +82,8 @@ const state: FormState = {
   submitting: false,
   verifiedXUsername: '',
   refTrackedLinkId: null,
+  prefillMeta: null,
+  prefillApplied: false,
 };
 
 // Replier pool loading state (shared between renderFormPage and attachXAutocomplete)
@@ -1180,6 +1189,54 @@ function attachFormEvents(): void {
 
 // ========== Init ==========
 
+// Pre-fill fields from the signed-in friend's stored metadata (matched by
+// field name). Only fills EMPTY fields, so it never clobbers user input.
+// Runs once, and only after the form body has actually rendered.
+function applyPrefill(): void {
+  if (state.prefillApplied) return;
+  const meta = state.prefillMeta;
+  const formDef = state.formDef;
+  if (!meta || !formDef) return;
+  const root = document.getElementById('app');
+  const body = root?.querySelector('.form-body');
+  if (!root || !body) return; // form not rendered yet — try again later
+
+  for (const field of formDef.fields) {
+    if (field.type === 'heading') continue;
+    const raw = (meta as Record<string, unknown>)[field.name];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    if (field.type === 'checkbox') {
+      const values = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+      const boxes = root.querySelectorAll<HTMLInputElement>(`input[type="checkbox"][name="${field.name}"]`);
+      const anyChecked = Array.from(boxes).some((b) => b.checked);
+      if (anyChecked) continue; // don't override existing selection
+      boxes.forEach((b) => { if (values.includes(b.value)) b.checked = true; });
+      continue;
+    }
+
+    if (field.type === 'radio') {
+      const radios = root.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${field.name}"]`);
+      const anyChecked = Array.from(radios).some((r) => r.checked);
+      if (anyChecked) continue;
+      radios.forEach((r) => { if (r.value === String(raw)) r.checked = true; });
+      continue;
+    }
+
+    // text / email / tel / number / date / textarea / select
+    const el = root.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="${field.name}"]`);
+    if (!el) continue;
+    if (el.value && el.value.trim() !== '') continue; // never overwrite typed input
+    if (el instanceof HTMLSelectElement) {
+      if (Array.from(el.options).some((o) => o.value === String(raw))) el.value = String(raw);
+    } else {
+      el.value = String(raw);
+    }
+  }
+
+  state.prefillApplied = true;
+}
+
 export async function initForm(formId: string | null): Promise<void> {
   if (!formId) {
     renderFormError('フォームIDが指定されていません');
@@ -1216,12 +1273,17 @@ export async function initForm(formId: string | null): Promise<void> {
         }),
       }).then(async (linkRes) => {
         if (linkRes.ok) {
-          const data = await linkRes.json() as { success: boolean; data?: { userId?: string } };
+          const data = await linkRes.json() as { success: boolean; data?: { userId?: string; metadata?: Record<string, unknown> } };
           if (data?.data?.userId) {
             try {
               localStorage.setItem(UUID_STORAGE_KEY, data.data.userId);
               state.friendId = data.data.userId;
             } catch { /* silent */ }
+          }
+          // Pre-fill known fields (name / company / email etc.) from stored profile
+          if (data?.data?.metadata) {
+            state.prefillMeta = data.data.metadata;
+            applyPrefill();
           }
         }
       }).catch(() => { /* silent */ });
@@ -1268,6 +1330,9 @@ export async function initForm(formId: string | null): Promise<void> {
     }
 
     render();
+
+    // Apply any metadata that already arrived from /api/liff/link
+    applyPrefill();
 
     // Record form open event (fire-and-forget)
     apiCall(`/api/forms/${state.formDef!.id}/opened`, {
