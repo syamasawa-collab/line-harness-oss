@@ -31,7 +31,9 @@ export default function TagsPage() {
     try {
       const res = await api.tags.listWithCounts()
       if (res.success) {
-        setTags(res.data)
+        // API が古い（friendsCount 未対応）場合でも画面が落ちないよう、
+        // 欠損値を 0 に正規化してから保持する。
+        setTags(res.data.map((t) => ({ ...t, friendsCount: t.friendsCount ?? 0 })))
       } else {
         setError(res.error)
       }
