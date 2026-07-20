@@ -1176,6 +1176,15 @@ liffRoutes.post('/api/liff/link', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
+    // The signed-in friend's stored profile, returned so LIFF forms can
+    // pre-fill fields (name / company / email …) matched by metadata key.
+    // Verified via LINE ID token above, so this only exposes the caller's
+    // own data.
+    let friendMeta: Record<string, unknown> = {};
+    try {
+      friendMeta = JSON.parse((friend as unknown as Record<string, string | null>).metadata || '{}') as Record<string, unknown>;
+    } catch { friendMeta = {}; }
+
     // IG cross-link: runs regardless of already-linked vs new-link branch so
     // existing friends still get ig_igsid wired when they hit this endpoint
     // from a reward DM.
@@ -1233,7 +1242,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
       }
       return c.json({
         success: true,
-        data: { userId: (friend as unknown as Record<string, unknown>).user_id, alreadyLinked: true },
+        data: { userId: (friend as unknown as Record<string, unknown>).user_id, alreadyLinked: true, metadata: friendMeta },
       });
     }
 
@@ -1302,7 +1311,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
 
     return c.json({
       success: true,
-      data: { userId, alreadyLinked: false },
+      data: { userId, alreadyLinked: false, metadata: friendMeta },
     });
   } catch (err) {
     console.error('POST /api/liff/link error:', err);
