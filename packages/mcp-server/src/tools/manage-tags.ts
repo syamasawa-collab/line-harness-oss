@@ -5,21 +5,21 @@ import { getClient } from "../client.js";
 export function registerManageTags(server: McpServer): void {
   server.tool(
     "manage_tags",
-    "List, create, or delete tags, and add/remove tags to/from friends. Supports batch operations on multiple friends.",
+    "List, create, rename, or delete tags, and add/remove tags to/from friends. Supports batch operations on multiple friends. Use 'usage' to see everywhere a tag is referenced (friends, scenarios, forms, broadcasts, links) BEFORE deleting or renaming it — delete is destructive.",
     {
-      action: z.enum(["list", "create", "delete", "add", "remove"]).describe("Action to perform"),
+      action: z.enum(["list", "create", "update", "usage", "delete", "add", "remove"]).describe("Action to perform"),
       tagName: z
         .string()
         .optional()
-        .describe("Tag name (for 'create' action)"),
+        .describe("Tag name (for 'create' action, or new name for 'update')"),
       tagColor: z
         .string()
         .optional()
-        .describe("Tag color hex code (for 'create' action, e.g. '#FF0000')"),
+        .describe("Tag color hex code (for 'create' or 'update' actions, e.g. '#FF0000')"),
       tagId: z
         .string()
         .optional()
-        .describe("Tag ID (for 'add' or 'remove' actions)"),
+        .describe("Tag ID (for 'update', 'usage', 'delete', 'add' or 'remove' actions)"),
       friendIds: z
         .array(z.string())
         .optional()
@@ -35,6 +35,27 @@ export function registerManageTags(server: McpServer): void {
           const tags = await client.tags.list();
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ success: true, tags }, null, 2) }],
+          };
+        }
+
+        if (action === "update") {
+          if (!tagId) throw new Error("tagId is required for update action");
+          if (!tagName && !tagColor)
+            throw new Error("tagName or tagColor is required for update action");
+          const tag = await client.tags.update(tagId, {
+            ...(tagName ? { name: tagName } : {}),
+            ...(tagColor ? { color: tagColor } : {}),
+          });
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ success: true, tag }, null, 2) }],
+          };
+        }
+
+        if (action === "usage") {
+          if (!tagId) throw new Error("tagId is required for usage action");
+          const usage = await client.tags.usage(tagId);
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ success: true, usage }, null, 2) }],
           };
         }
 

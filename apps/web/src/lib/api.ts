@@ -129,6 +129,32 @@ export type FriendListParams = {
 }
 
 export type FriendWithTags = Friend & { tags: Tag[] }
+
+export type TagWithCount = Tag & { friendsCount: number }
+
+/** タグの使用箇所（削除・名前変更前の影響アラートに表示） */
+export type TagUsage = {
+  friendsCount: number
+  scenariosAsTrigger: Array<{ id: string; name: string }>
+  scenarioStepsAsCondition: Array<{
+    scenarioId: string
+    scenarioName: string
+    stepId: string
+    stepOrder: number
+    conditionType: string
+  }>
+  scenarioStepsAsOnReach: Array<{
+    scenarioId: string
+    scenarioName: string
+    stepId: string
+    stepOrder: number
+  }>
+  formsOnSubmit: Array<{ id: string; name: string }>
+  broadcastsAsTarget: Array<{ id: string; title: string; status: string }>
+  trackedLinks: Array<{ id: string; name: string }>
+  entryRoutes: Array<{ id: string; name: string }>
+  menusAutoTag: Array<{ id: string; name: string }>
+}
 /** Friend list items, optionally hydrated with chat status (when ?includeChatStatus=true) */
 export type FriendListItem = FriendWithTags & Partial<{
   latestIncomingMessage: { content: string; messageType: string; createdAt: string } | null
@@ -173,15 +199,37 @@ export const api = {
       fetchApi<ApiResponse<{ id: string | null; name: string | null; isDefault: boolean }>>(
         `/api/friends/${id}/rich-menu`,
       ),
+    /**
+     * metadata（友だち情報）を更新。replace=true で全置換 — キー削除は
+     * 全置換でしか出来ない（マージは null を「削除」ではなく値として保存する）。
+     */
+    updateMetadata: (
+      friendId: string,
+      metadata: Record<string, unknown>,
+      opts?: { replace?: boolean },
+    ) =>
+      fetchApi<ApiResponse<FriendWithTags>>(
+        `/api/friends/${friendId}/metadata${opts?.replace ? '?replace=true' : ''}`,
+        { method: 'PUT', body: JSON.stringify(metadata) },
+      ),
   },
   tags: {
     list: () =>
       fetchApi<ApiResponse<Tag[]>>('/api/tags'),
+    listWithCounts: () =>
+      fetchApi<ApiResponse<TagWithCount[]>>('/api/tags?includeCounts=true'),
     create: (data: { name: string; color: string }) =>
       fetchApi<ApiResponse<Tag>>('/api/tags', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    update: (id: string, data: { name?: string; color?: string }) =>
+      fetchApi<ApiResponse<Tag>>(`/api/tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    usage: (id: string) =>
+      fetchApi<ApiResponse<TagUsage>>(`/api/tags/${id}/usage`),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/tags/${id}`, { method: 'DELETE' }),
   },
