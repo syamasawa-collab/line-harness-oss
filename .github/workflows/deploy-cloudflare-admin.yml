@@ -11,9 +11,17 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/deploy-cloudflare-admin.yml'
 
+# ── 食団連 (shokudanren) 本番設定 ─────────────────────────────
+# 秘密ではない値（アカウントID・Pages プロジェクト名・API URL）はここに
+# 直書き。運用者が GitHub に登録する秘密は CLOUDFLARE_API_TOKEN だけ。
+env:
+  CF_ACCOUNT_ID: aa8389f053c95ca40335702806b333d9
+  PAGES_PROJECT_NAME: line-harness-admin-4a5790ae
+  NEXT_PUBLIC_API_URL: https://line-harness.shokudanren.workers.dev
+
 jobs:
   deploy:
-    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true'
+    if: github.repository != 'Shudesu/line-harness-oss'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,19 +43,15 @@ jobs:
       - name: Build Admin Panel
         run: pnpm --filter web build
         env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
 
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME || 'your-admin-name' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$NEXT_PUBLIC_API_URL"
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN secret is not set"; exit 1; }
           npx wrangler pages deploy apps/web/out \
             --project-name="$PAGES_PROJECT_NAME" \
             --commit-message="deploy ${GITHUB_SHA}"
