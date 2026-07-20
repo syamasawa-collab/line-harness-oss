@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import type { Tag } from '@line-crm/shared'
 import { api } from '@/lib/api'
+import type { MetadataField } from '@/lib/api'
 
 interface FriendDetail {
   id: string
@@ -88,6 +89,8 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
   const [metaRows, setMetaRows] = useState<MetaRow[]>([])
   const [metaBusy, setMetaBusy] = useState(false)
   const [metaError, setMetaError] = useState('')
+  // 「友だち情報の項目」マスターで定義済みの項目。編集時に選んで追加できる。
+  const [definedFields, setDefinedFields] = useState<MetadataField[]>([])
 
   const refreshFriend = async () => {
     if (!friendId) return
@@ -139,6 +142,16 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
     setMetaRows(toMetaRows(friend?.metadata ?? {}))
     setMetaError('')
     setEditingMeta(true)
+    // 定義済み項目を取得（失敗しても自由入力は可能なので握りつぶす）。
+    api.metadataFields.list().then((res) => {
+      if (res.success) setDefinedFields(res.data)
+    }).catch(() => {})
+  }
+
+  const addDefinedField = (fieldKey: string) => {
+    if (!fieldKey) return
+    if (metaRows.some((r) => r.key.trim() === fieldKey)) return
+    setMetaRows((rows) => [...rows, { key: fieldKey, value: '', dirty: true }])
   }
 
   const handleMetaSave = async () => {
@@ -453,6 +466,21 @@ export default function FriendInfoSidebar({ friendId, chatStatus, operatorName }
                       </button>
                     </div>
                   ))}
+
+                  {definedFields.filter((f) => !metaRows.some((r) => r.key.trim() === f.fieldKey)).length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => { addDefinedField(e.target.value); e.target.value = '' }}
+                      className="w-full text-[11px] border border-gray-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                    >
+                      <option value="">定義済み項目から追加...</option>
+                      {definedFields
+                        .filter((f) => !metaRows.some((r) => r.key.trim() === f.fieldKey))
+                        .map((f) => (
+                          <option key={f.id} value={f.fieldKey}>{f.label}（{f.fieldKey}）</option>
+                        ))}
+                    </select>
+                  )}
 
                   <button
                     type="button"

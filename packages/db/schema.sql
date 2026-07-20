@@ -836,3 +836,19 @@ CREATE TABLE IF NOT EXISTS rich_menu_areas (
 CREATE INDEX IF NOT EXISTS idx_rich_menu_pages_group    ON rich_menu_pages(group_id, order_index);
 CREATE INDEX IF NOT EXISTS idx_rich_menu_areas_page     ON rich_menu_areas(page_id);
 CREATE INDEX IF NOT EXISTS idx_rich_menu_groups_account ON rich_menu_groups(account_id, status);
+
+-- ============================================================
+-- 友だち情報の項目マスター（metadata フィールド定義）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS metadata_fields (
+  id          TEXT PRIMARY KEY,
+  field_key   TEXT NOT NULL UNIQUE,
+  label       TEXT NOT NULL,
+  field_type  TEXT NOT NULL DEFAULT 'text' CHECK (field_type IN ('text', 'number', 'date', 'select')),
+  options     TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_metadata_fields_sort ON metadata_fields (sort_order);
