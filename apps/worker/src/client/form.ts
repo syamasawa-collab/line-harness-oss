@@ -21,12 +21,12 @@ declare const liff: {
 };
 
 const UUID_STORAGE_KEY = 'lh_uuid';
-const FORM_VERSION = '2.0.0'; // cache buster
+const FORM_VERSION = '2.1.0'; // cache buster
 
 interface FormField {
   name: string;
   label: string;
-  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date';
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'heading';
   required?: boolean;
   options?: string[];
   placeholder?: string;
@@ -86,6 +86,11 @@ function escapeHtml(str: string): string {
   return div.innerHTML;
 }
 
+// Escape HTML, then honor manual line breaks (mirrors the form description rendering)
+function escapeMultiline(str: string): string {
+  return escapeHtml(str).replace(/\\n|\n/g, '<br>');
+}
+
 function apiCall(path: string, options?: RequestInit): Promise<Response> {
   return fetch(path, {
     ...options,
@@ -107,12 +112,21 @@ function renderField(field: FormField): string {
   const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
   const requiredMark = field.required ? '<span class="required-mark">*</span>' : '';
 
+  // Section heading: display-only block, no input. Used to visually group questions.
+  if (field.type === 'heading') {
+    return `
+      <div class="form-heading">
+        ${escapeMultiline(field.label)}
+      </div>
+    `;
+  }
+
   // If this is an x_username field, render a fuzzy-search autocomplete input
   if (field.name === 'x_username') {
     return `
       <div class="form-field">
         <label class="form-label" for="field-${escapeHtml(field.name)}">
-          ${escapeHtml(field.label)}${requiredMark}
+          ${escapeMultiline(field.label)}${requiredMark}
         </label>
         <div class="x-autocomplete-wrap">
           <input
@@ -199,7 +213,7 @@ function renderField(field: FormField): string {
   return `
     <div class="form-field">
       <label class="form-label" for="field-${escapeHtml(field.name)}">
-        ${escapeHtml(field.label)}${requiredMark}
+        ${escapeMultiline(field.label)}${requiredMark}
       </label>
       ${inputHtml}
     </div>
@@ -224,6 +238,12 @@ function injectStyles(): void {
     .form-field { margin-bottom: 20px; }
     .form-label { display: block; font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px; }
     .required-mark { color: #e53e3e; margin-left: 2px; }
+    .form-heading {
+      margin: 28px 0 16px; padding: 12px 14px; border-radius: 8px;
+      background: #e8faf0; color: #05663b;
+      font-size: 15px; font-weight: 700; line-height: 1.6;
+    }
+    .form-heading:first-child { margin-top: 0; }
     .form-input, .form-textarea, .form-select {
       width: 100%; padding: 12px; border: 1.5px solid #e0e0e0; border-radius: 8px;
       font-size: 16px; font-family: inherit; background: #fafafa;
@@ -662,6 +682,7 @@ function collectFormData(): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   for (const field of formDef.fields) {
+    if (field.type === 'heading') continue;
     if (field.type === 'checkbox') {
       const checked = Array.from(
         document.querySelectorAll<HTMLInputElement>(
@@ -690,6 +711,7 @@ function validateForm(): string | null {
   if (!formDef) return null;
 
   for (const field of formDef.fields) {
+    if (field.type === 'heading') continue;
     if (!field.required) continue;
 
     if (field.type === 'checkbox') {

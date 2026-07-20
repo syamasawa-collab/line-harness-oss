@@ -393,10 +393,12 @@ export interface UpdateTrackedLinkInput {
 export interface FormField {
   name: string
   label: string
-  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date'
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'heading'
   required?: boolean
   options?: string[]  // for select, radio, checkbox
-  placeholder?: string
+  placeholder?: string  // for text-like inputs
+  // 'heading' is a display-only section header (no input). Its label supports
+  // manual line breaks (\n); all field labels render \n as a line break.
 }
 
 export interface Form {
