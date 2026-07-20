@@ -53,8 +53,18 @@ export class FriendsResource {
     return res.data
   }
 
-  async setMetadata(friendId: string, fields: Record<string, unknown>): Promise<Friend> {
-    const res = await this.http.put<ApiResponse<Friend>>(`/api/friends/${friendId}/metadata`, fields)
+  /**
+   * Update friend metadata. Default is a shallow merge; pass
+   * `{ replace: true }` to replace the whole object — the only way to
+   * delete a key (merging stores a null value instead of removing it).
+   */
+  async setMetadata(
+    friendId: string,
+    fields: Record<string, unknown>,
+    opts?: { replace?: boolean },
+  ): Promise<Friend> {
+    const path = `/api/friends/${friendId}/metadata${opts?.replace ? '?replace=true' : ''}`
+    const res = await this.http.put<ApiResponse<Friend>>(path, fields)
     return res.data
   }
 

@@ -579,7 +579,12 @@ friends.delete('/api/friends/:id/tags/:tagId', async (c) => {
   }
 });
 
-// PUT /api/friends/:id/metadata - merge metadata fields
+// PUT /api/friends/:id/metadata - update metadata fields.
+// Default is a shallow merge (backward compatible). With ?replace=true the
+// body replaces the whole metadata object — the only way to delete a key,
+// since merging can never drop one (a null value is stored as null, not
+// treated as a deletion). The admin metadata editor uses replace mode:
+// fetch the full object, edit, send it back whole.
 friends.put('/api/friends/:id/metadata', async (c) => {
   try {
     const friendId = c.req.param('id');
@@ -591,8 +596,15 @@ friends.put('/api/friends/:id/metadata', async (c) => {
     }
 
     const body = await c.req.json<Record<string, unknown>>();
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json(
+        { success: false, error: 'metadata must be a JSON object' },
+        400,
+      );
+    }
+    const replace = c.req.query('replace') === 'true';
     const existing = JSON.parse(friend.metadata || '{}');
-    const merged = { ...existing, ...body };
+    const merged = replace ? body : { ...existing, ...body };
     const now = jstNow();
 
     await db

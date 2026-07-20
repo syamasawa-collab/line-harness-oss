@@ -63,6 +63,35 @@ export interface CreateTagInput {
   color?: string
 }
 
+export interface UpdateTagInput {
+  name?: string
+  color?: string
+}
+
+/** タグの使用箇所の集約（削除・名前変更前の影響確認用） */
+export interface TagUsage {
+  friendsCount: number
+  scenariosAsTrigger: Array<{ id: string; name: string }>
+  scenarioStepsAsCondition: Array<{
+    scenarioId: string
+    scenarioName: string
+    stepId: string
+    stepOrder: number
+    conditionType: string
+  }>
+  scenarioStepsAsOnReach: Array<{
+    scenarioId: string
+    scenarioName: string
+    stepId: string
+    stepOrder: number
+  }>
+  formsOnSubmit: Array<{ id: string; name: string }>
+  broadcastsAsTarget: Array<{ id: string; title: string; status: string }>
+  trackedLinks: Array<{ id: string; name: string }>
+  entryRoutes: Array<{ id: string; name: string }>
+  menusAutoTag: Array<{ id: string; name: string }>
+}
+
 // ─── Scenario ───────────────────────────────────────────
 /**
  * シナリオ配信モード:
