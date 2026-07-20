@@ -50,10 +50,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN secret is not set"; exit 1; }
-          id=$(npx wrangler d1 list --json | node -e '
-            const rows = JSON.parse(require("fs").readFileSync(0, "utf8"));
+          # Cloudflare REST API を直接叩いて純粋な JSON を得る（wrangler の
+          # 案内メッセージが stdout に混ざり JSON.parse が壊れるのを回避）。
+          resp=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?per_page=100")
+          id=$(printf '%s' "$resp" | node -e '
+            const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (!d.success) { console.error("Cloudflare API error: " + JSON.stringify(d.errors)); process.exit(1); }
             const want = process.env.D1_DATABASE_NAME;
-            const m = rows.find((r) => r.name === want);
+            const m = (d.result || []).find((r) => r.name === want);
             if (!m) { console.error("D1 database not found: " + want); process.exit(1); }
             process.stdout.write(m.uuid || m.database_id || m.id);
           ')
@@ -74,9 +79,10 @@ jobs:
           # その場合、既存 DB は bootstrap.sql で全スキーマ済みなので、
           # 既存の全マイグレーションを「適用済み」として登録するだけにし、
           # ALTER TABLE ADD COLUMN 等を実行しない（既存列への再実行はエラー）。
+          # wrangler は JSON の前に案内文を出すことがあるため、最初の '[' 以降を JSON として読む。
           tracked=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
             --command "SELECT COUNT(*) AS c FROM _migrations" --json \
-            | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String(d[0]?.results?.[0]?.c ?? 0))')
+            | node -e 'const s=require("fs").readFileSync(0,"utf8");const d=JSON.parse(s.slice(s.indexOf("[")));process.stdout.write(String(d[0]?.results?.[0]?.c ?? 0))')
 
           if [ "$tracked" = "0" ]; then
             echo "既存 DB を検出（追跡なし）。スキーマは変更せず、現行マイグレーションを適用済みとして基準化します。"
@@ -92,7 +98,7 @@ jobs:
               name=$(basename "$f")
               applied=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
                 --command "SELECT name FROM _migrations WHERE name = '${name}'" --json \
-                | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
+                | node -e "const s=require('fs').readFileSync(0,'utf8');const d=JSON.parse(s.slice(s.indexOf('[')));console.log(d[0]?.results?.length||0)")
               if [ "$applied" = "0" ]; then
                 echo "Applying: $name"
                 npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file="$f"
