@@ -132,6 +132,20 @@ export type FriendWithTags = Friend & { tags: Tag[] }
 
 export type TagWithCount = Tag & { friendsCount: number }
 
+export type MetadataFieldType = 'text' | 'number' | 'date' | 'select'
+
+/** 友だち情報の項目マスター（friends.metadata のキー定義） */
+export type MetadataField = {
+  id: string
+  fieldKey: string
+  label: string
+  fieldType: MetadataFieldType
+  options: string[]
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 /** タグの使用箇所（削除・名前変更前の影響アラートに表示） */
 export type TagUsage = {
   friendsCount: number
@@ -232,6 +246,37 @@ export const api = {
       fetchApi<ApiResponse<TagUsage>>(`/api/tags/${id}/usage`),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/tags/${id}`, { method: 'DELETE' }),
+  },
+  metadataFields: {
+    list: () =>
+      fetchApi<ApiResponse<MetadataField[]>>('/api/metadata-fields'),
+    create: (data: {
+      fieldKey: string
+      label: string
+      fieldType: MetadataFieldType
+      options?: string[]
+      sortOrder?: number
+    }) =>
+      fetchApi<ApiResponse<MetadataField>>('/api/metadata-fields', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (
+      id: string,
+      data: Partial<{
+        fieldKey: string
+        label: string
+        fieldType: MetadataFieldType
+        options: string[]
+        sortOrder: number
+      }>,
+    ) =>
+      fetchApi<ApiResponse<MetadataField>>(`/api/metadata-fields/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/metadata-fields/${id}`, { method: 'DELETE' }),
   },
   scenarios: {
     list: (params?: { accountId?: string }) => {

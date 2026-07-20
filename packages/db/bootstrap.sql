@@ -961,3 +961,16 @@ CREATE INDEX idx_users_email ON users (email);
 CREATE INDEX idx_users_external_id ON users (external_id);
 
 CREATE INDEX idx_users_phone ON users (phone);
+
+CREATE TABLE metadata_fields (
+  id          TEXT PRIMARY KEY,
+  field_key   TEXT NOT NULL UNIQUE,
+  label       TEXT NOT NULL,
+  field_type  TEXT NOT NULL DEFAULT 'text' CHECK (field_type IN ('text', 'number', 'date', 'select')),
+  options     TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
+CREATE INDEX idx_metadata_fields_sort ON metadata_fields (sort_order);
