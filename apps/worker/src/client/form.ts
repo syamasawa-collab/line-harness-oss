@@ -530,7 +530,7 @@ function render(): void {
       <div class="form-page">
         <div class="form-header">
           <h1>${escapeHtml(formDef.name).replace(/\\n|\n/g, '<br>')}</h1>
-          ${formDef.description && !formDef.onSubmitWebhookUrl ? `<p class="form-description">${escapeHtml(formDef.description).replace(/\\n|\n/g, '<br>')}</p>` : ''}
+          ${formDef.description && !(formDef.onSubmitWebhookUrl && xUsernameField) ? `<p class="form-description">${escapeHtml(formDef.description).replace(/\\n|\n/g, '<br>')}</p>` : ''}
           ${profileHtml}
         </div>
         <form id="liff-form" class="form-body" novalidate>
@@ -771,8 +771,14 @@ async function submitForm(): Promise<void> {
     const data = collectFormData();
     console.log('Form data collected:', JSON.stringify(data));
 
-    // Webhook gate — pre-verified by /repliers endpoint
-    if (state.formDef.onSubmitWebhookUrl) {
+    // Webhook gate — pre-verified by /repliers endpoint.
+    // Only applies to X-engagement-gate forms, which are identified by the
+    // presence of an `x_username` field. A webhook URL alone does NOT mean an
+    // X gate — it may just be a plain notification/export endpoint (e.g. a
+    // Google Apps Script that logs answers to a spreadsheet), which must go
+    // through the normal submit path below.
+    const isXGateForm = state.formDef.fields.some((f) => f.name === 'x_username');
+    if (state.formDef.onSubmitWebhookUrl && isXGateForm) {
       // Check that user was selected from pre-verified repliers list
       const xField = ((data.x_username as string) ?? '').trim().replace(/^@/, '');
       if (!xField || xField !== state.verifiedXUsername) {
