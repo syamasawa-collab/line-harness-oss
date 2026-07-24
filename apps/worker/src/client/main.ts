@@ -500,20 +500,21 @@ function showGateSurvey(): void {
 }
 
 function showGateRole(): void {
-  const cfg = getGateConfig();
+  // お立場カード（飲食業／それ以外の二択）。回答に応じて、そのまま
+  // 同じ画面内でアンケート依頼（飲食業）／お断り（それ以外）へ遷移する。
+  // チャットへのpushに依存しないので「アンケートが出てこない」問題が起きない。
   renderCard(`
     <h2>はじめに</h2>
     <p class="message">
       ご登録ありがとうございます。<br>
-      まずはあなたのお立場をお聞かせください。
+      本アンケートは、飲食店の経営・運営に携わる方を対象にしています。<br>
+      あなたのお立場をお聞かせください。
     </p>
-    ${cfg.food
-      ? `<a href="${formUrl(cfg.food)}" class="add-friend-btn">飲食店の方はこちら</a>`
-      : ''}
-    ${cfg.nonfood
-      ? `<a href="${formUrl(cfg.nonfood)}" class="add-friend-btn" style="margin-top:12px;background:#f0f0f0;color:#333;">飲食店以外の方はこちら</a>`
-      : ''}
+    <button type="button" class="add-friend-btn" id="gateRoleFood">飲食店の経営・運営に携わっている</button>
+    <button type="button" class="add-friend-btn" id="gateRoleOther" style="margin-top:12px;background:#f0f0f0;color:#333;">それ以外</button>
   `);
+  document.getElementById('gateRoleFood')?.addEventListener('click', () => showGateSurvey());
+  document.getElementById('gateRoleOther')?.addEventListener('click', () => showGateDecline());
 }
 
 function showGateDecline(): void {
