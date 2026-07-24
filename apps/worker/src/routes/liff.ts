@@ -1128,6 +1128,93 @@ liffRoutes.post('/api/liff/profile', async (c) => {
   }
 });
 
+// POST /api/liff/gate - お立場ゲート判定（公開・LINE IDトークンで本人確認）
+//
+// キャンペーンのゲートページ用。同じ URL でも、
+//   - お立場「飲食店」タグ保有   → segment: 'food'    （すぐアンケート依頼）
+//   - お立場「非飲食」タグ保有   → segment: 'nonfood' （お断り）
+//   - どちらも無い（お立場未登録）→ segment: null      （お立場カードを出す）
+// を返す。タグIDはハードコードせずリクエストで受け取る（キャンペーンごとに差し替え可）。
+liffRoutes.post('/api/liff/gate', async (c) => {
+  try {
+    const body = await c.req.json<{
+      idToken: string;
+      foodTagId?: string;
+      nonfoodTagId?: string;
+    }>();
+
+    if (!body.idToken) {
+      return c.json({ success: false, error: 'idToken is required' }, 400);
+    }
+
+    // Verify with default Login channel, then any DB-configured Login channels
+    const loginChannelIds = [c.env.LINE_LOGIN_CHANNEL_ID];
+    const dbAccounts = await getLineAccounts(c.env.DB);
+    for (const acct of dbAccounts) {
+      if (acct.login_channel_id && !loginChannelIds.includes(acct.login_channel_id)) {
+        loginChannelIds.push(acct.login_channel_id);
+      }
+    }
+
+    let verifyRes: Response | null = null;
+    for (const channelId of loginChannelIds) {
+      verifyRes = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ id_token: body.idToken, client_id: channelId }),
+      });
+      if (verifyRes.ok) break;
+    }
+
+    if (!verifyRes?.ok) {
+      return c.json({ success: false, error: 'Invalid ID token' }, 401);
+    }
+
+    const verified = await verifyRes.json<{ sub: string }>();
+    const lineUserId = verified.sub;
+
+    const db = c.env.DB;
+    const friend = await getFriendByLineUserId(db, lineUserId);
+    if (!friend) {
+      // まだ友だち登録が反映されていない（追加直後など）
+      return c.json({
+        success: true,
+        data: { isFollowing: false, segment: null, friendId: null },
+      });
+    }
+
+    const hasTag = async (tagId?: string): Promise<boolean> => {
+      if (!tagId) return false;
+      const row = await db
+        .prepare('SELECT 1 FROM friend_tags WHERE friend_id = ? AND tag_id = ?')
+        .bind(friend.id, tagId)
+        .first();
+      return Boolean(row);
+    };
+
+    const isFood = await hasTag(body.foodTagId);
+    const isNonfood = isFood ? false : await hasTag(body.nonfoodTagId);
+    const segment: 'food' | 'nonfood' | null = isFood
+      ? 'food'
+      : isNonfood
+        ? 'nonfood'
+        : null;
+
+    return c.json({
+      success: true,
+      data: {
+        friendId: friend.id,
+        displayName: friend.display_name,
+        isFollowing: Boolean(friend.is_following),
+        segment,
+      },
+    });
+  } catch (err) {
+    console.error('POST /api/liff/gate error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 // POST /api/liff/link - link friend to user UUID (public, verified via LINE ID token)
 liffRoutes.post('/api/liff/link', async (c) => {
   try {
