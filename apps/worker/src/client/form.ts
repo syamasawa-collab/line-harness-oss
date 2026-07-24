@@ -89,6 +89,238 @@ const state: FormState = {
 // Replier pool loading state (shared between renderFormPage and attachXAutocomplete)
 let _replierPoolReady = false;
 
+// ========== 途中保存（下書き）＆長いフォームのUX ==========
+//
+// 設問数の多いアンケートは、途中で中断されると最初から入力し直しになり
+// 離脱の最大要因になる。入力のたびに localStorage へ下書きを保存し、
+// 次に同じ端末で開いたとき「続きから」再開できるようにする。
+// 送信が成功した時点で下書きは破棄する。
+
+const DRAFT_KEY_PREFIX = 'lh_form_draft_';
+/** 下書きの保持期間。これを過ぎたものは古い回答として捨てる。 */
+const DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日
+/** これ以上の設問数を「長いフォーム」とみなし、進捗バー等の補助UIを出す。 */
+const LONG_FORM_THRESHOLD = 15;
+
+let _draftSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _draftAutosaveAttached = false;
+
+interface StoredDraft {
+  savedAt: number;
+  data: Record<string, unknown>;
+}
+
+function draftKey(formId: string): string {
+  return `${DRAFT_KEY_PREFIX}${formId}`;
+}
+
+/** 見出し行を除いた「実際に回答する設問」だけを返す。 */
+function answerableFields(formDef: FormDef): FormField[] {
+  return formDef.fields.filter((f) => f.type !== 'heading');
+}
+
+function isLongForm(formDef: FormDef): boolean {
+  return answerableFields(formDef).length >= LONG_FORM_THRESHOLD;
+}
+
+function readDraft(formId: string): StoredDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(formId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredDraft;
+    if (!parsed || typeof parsed !== 'object' || !parsed.data) return null;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > DRAFT_TTL_MS) {
+      localStorage.removeItem(draftKey(formId));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(formId: string): void {
+  try {
+    localStorage.removeItem(draftKey(formId));
+  } catch {
+    /* silent */
+  }
+}
+
+/** 空でない回答が1つ以上あるか（何も入力していない状態を保存しないため）。 */
+function hasAnyAnswer(data: Record<string, unknown>): boolean {
+  return Object.values(data).some((v) =>
+    Array.isArray(v) ? v.length > 0 : typeof v === 'string' ? v.trim() !== '' : v != null,
+  );
+}
+
+function saveDraftNow(): void {
+  const formDef = state.formDef;
+  if (!formDef || state.submitting) return;
+  try {
+    const data = collectFormData();
+    if (!hasAnyAnswer(data)) return;
+    const payload: StoredDraft = { savedAt: Date.now(), data };
+    localStorage.setItem(draftKey(formDef.id), JSON.stringify(payload));
+    showSavedHint();
+  } catch {
+    /* 保存できない環境（容量・プライベートモード等）では黙って諦める */
+  }
+}
+
+function scheduleDraftSave(): void {
+  if (_draftSaveTimer) clearTimeout(_draftSaveTimer);
+  _draftSaveTimer = setTimeout(saveDraftNow, 500);
+}
+
+function showSavedHint(): void {
+  const hint = document.getElementById('form-saved-hint');
+  if (!hint) return;
+  hint.textContent = '自動保存しました';
+  hint.classList.add('visible');
+  setTimeout(() => hint.classList.remove('visible'), 1600);
+}
+
+/** 入力のたびに下書きを保存する。画面を離れる瞬間は即座に保存する。 */
+function attachDraftAutosave(): void {
+  if (_draftAutosaveAttached) return;
+  const form = document.getElementById('liff-form') || document.getElementById('survey-form');
+  if (!form) return;
+  form.addEventListener('input', () => {
+    scheduleDraftSave();
+    updateProgress();
+  });
+  form.addEventListener('change', () => {
+    scheduleDraftSave();
+    updateProgress();
+  });
+  // 閉じられる直前は debounce を待たずに確定保存する
+  const flush = () => {
+    if (_draftSaveTimer) {
+      clearTimeout(_draftSaveTimer);
+      _draftSaveTimer = null;
+    }
+    saveDraftNow();
+  };
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
+  _draftAutosaveAttached = true;
+}
+
+/**
+ * 保存済みの下書きを画面に復元する。復元した設問数を返す。
+ * applyPrefill より前に呼ぶこと（prefill は空欄しか埋めないので、
+ * この順序なら下書きがプロフィール既定値に上書きされない）。
+ */
+function restoreDraft(): number {
+  const formDef = state.formDef;
+  if (!formDef) return 0;
+  const draft = readDraft(formDef.id);
+  if (!draft) return 0;
+
+  const root = getApp();
+  let restored = 0;
+
+  for (const field of answerableFields(formDef)) {
+    const raw = draft.data[field.name];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    if (field.type === 'checkbox') {
+      const values = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+      if (values.length === 0) continue;
+      const boxes = root.querySelectorAll<HTMLInputElement>(`input[type="checkbox"][name="${field.name}"]`);
+      boxes.forEach((b) => { if (values.includes(b.value)) b.checked = true; });
+      restored++;
+      continue;
+    }
+
+    if (field.type === 'radio') {
+      const radios = root.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${field.name}"]`);
+      radios.forEach((r) => { if (r.value === String(raw)) r.checked = true; });
+      restored++;
+      continue;
+    }
+
+    const el = root.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="${field.name}"]`);
+    if (!el) continue;
+    if (el instanceof HTMLSelectElement) {
+      if (Array.from(el.options).some((o) => o.value === String(raw))) {
+        el.value = String(raw);
+        restored++;
+      }
+    } else {
+      el.value = String(raw);
+      restored++;
+    }
+  }
+
+  return restored;
+}
+
+/** 復元したことを本人に伝えるバナー。「最初からやり直す」も用意する。 */
+function showResumeBanner(restoredCount: number, savedAt: number): void {
+  const holder = document.getElementById('form-resume-slot');
+  if (!holder) return;
+  const d = new Date(savedAt);
+  const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  holder.innerHTML = `
+    <div class="form-resume">
+      <p><strong>前回の続きから復元しました</strong><br>
+      ${restoredCount}問の回答を引き継いでいます（保存: ${escapeHtml(stamp)}）。続きからご回答ください。</p>
+      <button type="button" id="form-resume-reset">最初からやり直す</button>
+    </div>
+  `;
+  document.getElementById('form-resume-reset')?.addEventListener('click', () => {
+    const formDef = state.formDef;
+    if (!formDef) return;
+    if (!window.confirm('入力済みの回答をすべて消して、最初からやり直しますか？')) return;
+    clearDraft(formDef.id);
+    window.location.reload();
+  });
+}
+
+/** 必須設問の回答済み数を進捗バーに反映する。 */
+function updateProgress(): void {
+  const formDef = state.formDef;
+  const bar = document.getElementById('form-progress-fill');
+  const label = document.getElementById('form-progress-label');
+  if (!formDef || !bar || !label) return;
+
+  const required = answerableFields(formDef).filter((f) => f.required);
+  if (required.length === 0) return;
+
+  let done = 0;
+  for (const field of required) {
+    if (field.type === 'checkbox' || field.type === 'radio') {
+      if (document.querySelector<HTMLInputElement>(`input[name="${field.name}"]:checked`)) done++;
+    } else {
+      const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="${field.name}"]`);
+      if (el && el.value.trim() !== '') done++;
+    }
+  }
+
+  const pct = Math.round((done / required.length) * 100);
+  bar.style.width = `${pct}%`;
+  label.textContent = `回答済み ${done} / ${required.length}`;
+}
+
+/** 未回答の設問まで自動スクロールして目立たせる（長いフォームでは必須）。 */
+function focusField(fieldName: string): void {
+  const root = getApp();
+  const container = root.querySelector<HTMLElement>(`.form-field[data-field="${fieldName}"]`);
+  const target = container
+    || root.querySelector<HTMLElement>(`[name="${fieldName}"]`)?.closest<HTMLElement>('.form-field')
+    || null;
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('field-flash');
+  // reflow を挟んでアニメーションを再生させる
+  void target.offsetWidth;
+  target.classList.add('field-flash');
+}
+
 function escapeHtml(str: string): string {
   const div = document.createElement('div');
   div.textContent = str;
@@ -133,7 +365,7 @@ function renderField(field: FormField): string {
   // If this is an x_username field, render a fuzzy-search autocomplete input
   if (field.name === 'x_username') {
     return `
-      <div class="form-field">
+      <div class="form-field" data-field="${escapeHtml(field.name)}">
         <label class="form-label" for="field-${escapeHtml(field.name)}">
           ${escapeMultiline(field.label)}${requiredMark}
         </label>
@@ -220,7 +452,7 @@ function renderField(field: FormField): string {
   }
 
   return `
-    <div class="form-field">
+    <div class="form-field" data-field="${escapeHtml(field.name)}">
       <label class="form-label" for="field-${escapeHtml(field.name)}">
         ${escapeMultiline(field.label)}${requiredMark}
       </label>
@@ -391,6 +623,50 @@ function injectStyles(): void {
     .form-success .check { width: 64px; height: 64px; border-radius: 50%; background: #06C755; color: #fff; font-size: 32px; line-height: 64px; margin: 0 auto 16px; }
     .form-success h2 { font-size: 20px; color: #06C755; margin-bottom: 12px; }
     .form-success p { font-size: 14px; color: #666; line-height: 1.6; }
+
+    /* 長いフォーム向けの補助UI（自動保存・進捗・復元） */
+    .form-notice {
+      background: #f1f8f4; border: 1px solid #cfe6d9; color: #2f6b4f;
+      font-size: 13px; line-height: 1.65; border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 12px;
+    }
+    .form-notice strong { color: #1f5c3f; }
+    .form-resume {
+      background: #fff8e8; border: 1px solid #f0dca8; color: #7a5b13;
+      font-size: 13px; line-height: 1.65; border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 12px;
+    }
+    .form-resume button {
+      margin-top: 10px; background: #fff; border: 1px solid #dcc47f;
+      color: #7a5b13; font-size: 12px; font-weight: 600;
+      border-radius: 8px; padding: 7px 12px; cursor: pointer;
+    }
+    .form-progress {
+      position: sticky; top: 0; z-index: 5;
+      background: rgba(247,248,250,0.96);
+      -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+      padding: 10px 2px 10px; margin-bottom: 12px;
+    }
+    .form-progress-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-size: 12px; color: #666; margin-bottom: 6px;
+    }
+    .form-progress-track {
+      height: 6px; background: #e6eaee; border-radius: 999px; overflow: hidden;
+    }
+    .form-progress-fill {
+      height: 100%; width: 0%; background: #06C755;
+      border-radius: 999px; transition: width .25s ease;
+    }
+    .form-saved-hint {
+      font-size: 11px; color: #06C755; opacity: 0; transition: opacity .3s ease;
+    }
+    .form-saved-hint.visible { opacity: 1; }
+    .field-flash { border-radius: 8px; animation: fieldFlash 1.6s ease; }
+    @keyframes fieldFlash {
+      0%, 100% { background: transparent; box-shadow: none; }
+      12%, 55% { background: #fff6d6; box-shadow: 0 0 0 4px #fff6d6; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -458,18 +734,21 @@ function render(): void {
           const checked = document.querySelectorAll<HTMLInputElement>(`input[name="${field.name}"]:checked`);
           if (checked.length === 0) {
             showFieldError(`${field.label} は必須項目です`);
+            focusField(field.name);
             return;
           }
         } else if (field.type === 'radio') {
           const checked = document.querySelector<HTMLInputElement>(`input[name="${field.name}"]:checked`);
           if (!checked) {
             showFieldError(`${field.label} は必須項目です`);
+            focusField(field.name);
             return;
           }
         } else {
           const el = document.querySelector<HTMLInputElement>(`[name="${field.name}"]`);
           if (!el || !el.value.trim()) {
             showFieldError(`${field.label} は必須項目です`);
+            focusField(field.name);
             return;
           }
         }
@@ -526,6 +805,29 @@ function render(): void {
   } else {
     // ─── Single page layout (original) ───
     const fieldsHtml = formDef.fields.map(renderField).join('');
+    // 設問の多いフォームだけに、自動保存の案内・進捗バー・復元枠を出す。
+    // 短いフォームの見た目は従来どおり変えない。
+    const longForm = isLongForm(formDef);
+    const requiredCount = answerableFields(formDef).filter((f) => f.required).length;
+    const helperHtml = longForm
+      ? `
+        <div id="form-resume-slot"></div>
+        <div class="form-notice">
+          <strong>入力内容は自動保存されます。</strong><br>
+          途中で閉じても、同じ端末で開き直せば続きから回答できます。
+          お時間のあるときに、少しずつでもご回答いただけますと助かります。
+        </div>
+        ${requiredCount > 0 ? `
+        <div class="form-progress">
+          <div class="form-progress-row">
+            <span id="form-progress-label">回答済み 0 / ${requiredCount}</span>
+            <span class="form-saved-hint" id="form-saved-hint"></span>
+          </div>
+          <div class="form-progress-track"><div class="form-progress-fill" id="form-progress-fill"></div></div>
+        </div>` : ''}
+      `
+      : '';
+
     app.innerHTML = `
       <div class="form-page">
         <div class="form-header">
@@ -533,6 +835,7 @@ function render(): void {
           ${formDef.description && !(formDef.onSubmitWebhookUrl && xUsernameField) ? `<p class="form-description">${escapeHtml(formDef.description).replace(/\\n|\n/g, '<br>')}</p>` : ''}
           ${profileHtml}
         </div>
+        ${helperHtml}
         <form id="liff-form" class="form-body" novalidate>
           ${fieldsHtml}
           <button type="submit" class="submit-btn" id="submitBtn">送信する</button>
@@ -541,6 +844,17 @@ function render(): void {
     `;
 
     attachFormEvents();
+
+    // 下書きの復元 → 自動保存の開始 → 進捗の初期表示。
+    // 復元は applyPrefill より先に行う（prefill は空欄しか埋めないため、
+    // この順序なら復元した回答が既定値で上書きされない）。
+    if (longForm) {
+      const draft = readDraft(formDef.id);
+      const restored = restoreDraft();
+      if (draft && restored > 0) showResumeBanner(restored, draft.savedAt);
+      attachDraftAutosave();
+      updateProgress();
+    }
   }
 }
 
@@ -715,29 +1029,40 @@ function collectFormData(): Record<string, unknown> {
   return result;
 }
 
-function validateForm(): string | null {
+/**
+ * 未回答の必須設問を1つ返す。長いフォームでは「どれが未回答か」を
+ * 文字だけで伝えても探せないため、設問名も返してスクロールに使う。
+ */
+function validateForm(): { message: string; field: string } | null {
   const { formDef } = state;
   if (!formDef) return null;
+
+  // 設問ラベルには見出し行（《1》…）が混ざることがあるので、
+  // エラー表示では先頭行だけを使って短く伝える。
+  const shortLabel = (label: string) =>
+    label.split(/\\n|\n/).pop()!.trim().slice(0, 40) || label;
 
   for (const field of formDef.fields) {
     if (field.type === 'heading') continue;
     if (!field.required) continue;
 
+    const missing = `${shortLabel(field.label)} が未回答です`;
+
     if (field.type === 'checkbox') {
       const checked = document.querySelectorAll<HTMLInputElement>(
         `input[name="${field.name}"]:checked`,
       );
-      if (checked.length === 0) return `${field.label} は必須項目です`;
+      if (checked.length === 0) return { message: missing, field: field.name };
     } else if (field.type === 'radio') {
       const checked = document.querySelector<HTMLInputElement>(
         `input[name="${field.name}"]:checked`,
       );
-      if (!checked) return `${field.label} は必須項目です`;
+      if (!checked) return { message: missing, field: field.name };
     } else {
       const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
         `[name="${field.name}"]`,
       );
-      if (!el || !el.value.trim()) return `${field.label} は必須項目です`;
+      if (!el || !el.value.trim()) return { message: missing, field: field.name };
     }
   }
 
@@ -754,9 +1079,11 @@ async function submitForm(): Promise<void> {
     const errEl = document.createElement('p');
     errEl.className = 'form-error-msg';
     errEl.style.cssText = 'color:#e53e3e;font-size:14px;margin:8px 0;text-align:center;';
-    errEl.textContent = validationError;
+    errEl.textContent = validationError.message;
     const submitBtn = document.getElementById('submitBtn');
     submitBtn?.parentElement?.insertBefore(errEl, submitBtn);
+    // 該当設問まで自動でスクロールして目立たせる（自分で探させない）
+    focusField(validationError.field);
     return;
   }
 
@@ -831,6 +1158,7 @@ async function submitForm(): Promise<void> {
       if (submitResult?.data?.webhookPassed === false) {
         throw new Error(state.formDef.onSubmitWebhookFailMessage || '条件を満たしていません');
       }
+      clearDraft(state.formDef.id); // 送信完了 → 下書きは不要
       renderWebhookSuccess(successMsg);
       return;
     }
@@ -854,6 +1182,7 @@ async function submitForm(): Promise<void> {
       throw new Error(`${res.status}: ${errMsg}`);
     }
 
+    clearDraft(state.formDef.id); // 送信完了 → 下書きは不要
     renderSuccess();
   } catch (err) {
     state.submitting = false;

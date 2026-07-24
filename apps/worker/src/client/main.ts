@@ -484,8 +484,51 @@ function renderCard(inner: string): void {
   container.innerHTML = `<div class="card">${inner}</div>`;
 }
 
+// アンケートのリンクをトークにも1通だけ送る。
+// 「今は時間がない」人が離脱しても、トークに残ったリンクから後で回答できる。
+// 端末をまたいでも二重送信しないよう、localStorage と メモリ両方で見張る。
+let _gateLinkPushed = false;
+
+function gateSentKey(formId: string): string {
+  return `lh_gate_link_sent_${formId}`;
+}
+
+function pushSurveyLinkToTalk(): void {
+  const cfg = getGateConfig();
+  if (!cfg.survey || _gateLinkPushed) return;
+  try {
+    if (localStorage.getItem(gateSentKey(cfg.survey))) return;
+  } catch { /* localStorage 不可でもメモリ側の見張りで足りる */ }
+  _gateLinkPushed = true;
+
+  void (async () => {
+    try {
+      const profile = await liff.getProfile();
+      const idToken = liff.getIDToken();
+      const res = await apiCall('/api/liff/send-form-link', {
+        method: 'POST',
+        body: JSON.stringify({
+          lineUserId: profile.userId,
+          formId: cfg.survey,
+          idToken: idToken || '',
+          ref: cfg.ref || '',
+        }),
+      });
+      if (res.ok) {
+        try { localStorage.setItem(gateSentKey(cfg.survey!), String(Date.now())); } catch { /* silent */ }
+      } else {
+        _gateLinkPushed = false; // 失敗したら次の機会に再送を許す
+      }
+    } catch {
+      _gateLinkPushed = false;
+    }
+  })();
+}
+
 function showGateSurvey(): void {
   const cfg = getGateConfig();
+  // トークにもリンクを送っておく（後回しにする人の取りこぼしを防ぐ）
+  pushSurveyLinkToTalk();
   renderCard(`
     <h2>アンケートのお願い</h2>
     <p class="message">
@@ -496,6 +539,12 @@ function showGateSurvey(): void {
     ${cfg.survey
       ? `<a href="${formUrl(cfg.survey)}" class="add-friend-btn">アンケートに回答する</a>`
       : `<p class="error">フォームが設定されていません。</p>`}
+    <p class="sub-message" style="margin-top:14px;text-align:left;line-height:1.7;">
+      いまお時間がない方は、このまま閉じていただいて大丈夫です。<br>
+      <strong>トーク画面にアンケートのリンクをお送りしています</strong>ので、
+      後ほどご都合のよいときにご回答ください。<br>
+      回答は自動保存されますので、途中で中断しても続きから再開できます。
+    </p>
   `);
 }
 
