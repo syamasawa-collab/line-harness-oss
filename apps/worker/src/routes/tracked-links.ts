@@ -173,6 +173,22 @@ function isAppLinkDomain(url: string): boolean {
   }
 }
 
+// LINE's own domains (friend-add / LIFF / short links). Kept OUT of APP_LINK_DOMAINS
+// on purpose: when opened INSIDE the LINE app we still want the LIFF-identification
+// redirect (which pushes the intro template). We only serve the Universal-Link launch
+// HTML for these when opened from an EXTERNAL browser (Safari/email), where a plain 302
+// to line.me does not reliably open the LINE app on iOS.
+const LINE_DEST_DOMAINS = new Set(['line.me', 'liff.line.me', 'lin.ee']);
+
+function isLineDomain(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return LINE_DEST_DOMAINS.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
 // Android app package names for intent:// deep links
 const ANDROID_PACKAGES: Record<string, string> = {
   'x.com': 'com.twitter.android',
@@ -183,6 +199,9 @@ const ANDROID_PACKAGES: Record<string, string> = {
   'tiktok.com': 'com.zhiliaoapp.musically',
   'facebook.com': 'com.facebook.katana',
   'github.com': 'com.github.android',
+  'line.me': 'jp.naver.line.android',
+  'liff.line.me': 'jp.naver.line.android',
+  'lin.ee': 'jp.naver.line.android',
 };
 
 function getAndroidPackage(url: string): string | null {
@@ -288,8 +307,13 @@ trackedLinks.get('/t/:linkId', async (c) => {
     })(),
   );
 
-  // App-link domains: return HTML with JS redirect for Universal Link support
-  if (useAppRedirect) {
+  // Return HTML with JS redirect for Universal Link support when either:
+  //  - the destination is a known app-link domain (X/Instagram/etc.), or
+  //  - the destination is a LINE domain opened from an EXTERNAL browser.
+  // A plain 302 to line.me/liff.line.me does not reliably launch the LINE app on iOS
+  // Safari (breaks web/email distribution). In-LINE opens of LINE domains are handled
+  // above via the LIFF-identification redirect, so this only affects external browsers.
+  if (useAppRedirect || (isLineDomain(link.original_url) && !isLineApp)) {
     return c.html(buildAppRedirectHtml(link.original_url));
   }
 
