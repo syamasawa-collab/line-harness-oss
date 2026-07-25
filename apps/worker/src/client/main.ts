@@ -460,6 +460,9 @@ interface GateConfig {
   nonfood: string | null;   // お立場フォーム（非飲食）ID
   foodTag: string | null;   // 飲食店タグID
   nonfoodTag: string | null; // 非飲食タグID
+  foodTpl: string | null;    // アンケート案内テンプレートID
+  nonfoodTpl: string | null; // お断りテンプレートID
+  roleTpl: string | null;    // お立場カードのテンプレートID
 }
 
 function getGateConfig(): GateConfig {
@@ -471,6 +474,9 @@ function getGateConfig(): GateConfig {
     nonfood: p.get('nonfood'),
     foodTag: p.get('food_tag'),
     nonfoodTag: p.get('nonfood_tag'),
+    foodTpl: p.get('food_tpl'),
+    nonfoodTpl: p.get('nonfood_tpl'),
+    roleTpl: p.get('role_tpl'),
   };
 }
 
@@ -578,6 +584,31 @@ function showGateDecline(): void {
   `);
 }
 
+/** 案内はトークに届いた、と伝えてこの画面を閉じる。 */
+function showTalkHandoff(): void {
+  renderCard(`
+    <div class="check-icon">💬</div>
+    <h2>トーク画面をご確認ください</h2>
+    <p class="message">
+      ご案内をトークにお送りしました。<br>
+      この画面は閉じて大丈夫です。
+    </p>
+  `);
+  if (liff.isInClient()) {
+    setTimeout(() => {
+      try { liff.closeWindow(); } catch { /* ignore */ }
+    }, 2200);
+  }
+}
+
+/**
+ * 判定して、対応する案内を**トークに送る**。
+ *
+ * LIFF のページ内に出す方式は、友だち追加の直後に LINE がトーク画面へ
+ * 着地するため成立しない（利用者は「LIFF に戻る」操作を認識できない）。
+ * そのため案内はすべてトークに送り、この画面は閉じるだけにする。
+ * push できなかった場合だけ、行き止まりを避けるため画面内に表示する。
+ */
 async function routeGate(idToken: string | null): Promise<void> {
   const cfg = getGateConfig();
   try {
@@ -587,13 +618,32 @@ async function routeGate(idToken: string | null): Promise<void> {
         idToken: idToken || '',
         foodTagId: cfg.foodTag || '',
         nonfoodTagId: cfg.nonfoodTag || '',
+        push: true,
+        surveyFormId: cfg.survey || '',
+        foodTemplateId: cfg.foodTpl || '',
+        nonfoodTemplateId: cfg.nonfoodTpl || '',
+        roleTemplateId: cfg.roleTpl || '',
       }),
     });
     const json = (await res.json()) as {
       success: boolean;
-      data?: { segment?: 'food' | 'nonfood' | null };
+      data?: {
+        segment?: 'food' | 'nonfood' | null;
+        pushed?: boolean;
+        pushSkipReason?: string | null;
+      };
     };
-    const segment = json?.data?.segment ?? null;
+    const data = json?.data;
+
+    // トークに送れた（または直前に同じ案内が届いている）ならトークへ誘導する
+    if (data?.pushed || data?.pushSkipReason === 'recently_sent') {
+      showTalkHandoff();
+      return;
+    }
+
+    // ここに来るのは push できなかった場合のみ（テンプレ未設定など）。
+    // 何も出さないと行き止まりになるので、従来どおり画面内に表示する。
+    const segment = data?.segment ?? null;
     if (segment === 'food') {
       showGateSurvey();
     } else if (segment === 'nonfood') {
@@ -624,10 +674,18 @@ function showGateFriendAdd(
         まずは食団連公式アカウントの友だち追加をお願いします。
       </p>
       <a href="${friendAddUrl}" class="add-friend-btn" id="addFriendBtn">友だち追加して続ける</a>
-      <p class="sub-message">追加後、この画面に戻ってきてください</p>
+      <p class="sub-message">
+        追加すると、そのまま<strong>トーク画面にご案内が届きます</strong>。<br>
+        この画面に戻る必要はありません。
+      </p>
     </div>
   `;
 
+  // 追加後にこの画面へ戻ってきた場合の保険。
+  // 通常は friend_add のあいさつがトークに案内を出すので、ここでは
+  // 「トークを見てください」と伝えるだけでよい。ただし再追加などで
+  // あいさつが発火しないことがあるため、ゲート判定も呼んでおく
+  // （サーバー側に直近3分の二重送信ガードがあるので重複しない）。
   let routed = false;
   const onVisibilityChange = async () => {
     if (document.visibilityState !== 'visible') return;
@@ -637,7 +695,7 @@ function showGateFriendAdd(
       routed = true;
       document.removeEventListener('visibilitychange', onVisibilityChange);
       // 追加直後は friends 行の反映が遅れることがあるため、少し待ってから判定
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 1200));
       await routeGate(idToken);
     } catch {
       // ignore

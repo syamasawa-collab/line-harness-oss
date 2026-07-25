@@ -1141,6 +1141,14 @@ liffRoutes.post('/api/liff/gate', async (c) => {
       idToken: string;
       foodTagId?: string;
       nonfoodTagId?: string;
+      /** true なら判定結果に対応する案内をトークへ push する */
+      push?: boolean;
+      /** アンケートフォームID（案内カードの {formUrl} に差し込む） */
+      surveyFormId?: string;
+      /** segment ごとに送るメッセージテンプレートID */
+      foodTemplateId?: string;
+      nonfoodTemplateId?: string;
+      roleTemplateId?: string;
     }>();
 
     if (!body.idToken) {
@@ -1200,6 +1208,120 @@ liffRoutes.post('/api/liff/gate', async (c) => {
         ? 'nonfood'
         : null;
 
+    // ─── トークへの案内送信 ───
+    //
+    // LIFF のページ内で案内を出すと、友だち追加の直後は LINE がトーク画面に
+    // 着地するため「LIFF に戻る」操作が必要になり、利用者はそれを認識できない
+    // （＝案内が届かないように見える）。そこで案内は**トークに送る**。
+    // 呼び出し側は送信後に LIFF を閉じるだけでよい。
+    let pushed = false;
+    let pushSkipReason: string | null = null;
+
+    if (body.push) {
+      if (!friend.is_following) {
+        // 非フォロワーには push できない（LINE仕様）。友だち追加後は
+        // friend_add シナリオが案内を出すため、ここでは何もしない。
+        pushSkipReason = 'not_following';
+      } else {
+        const templateId = segment === 'food'
+          ? body.foodTemplateId
+          : segment === 'nonfood'
+            ? body.nonfoodTemplateId
+            : body.roleTemplateId;
+
+        if (!templateId) {
+          pushSkipReason = 'no_template';
+        } else {
+          // 二重送信ガード。狙いは2つ。
+          //  (1) 友だち追加直後は friend_add シナリオ（source='scenario'）が
+          //      すでに同じ案内を出しているので、重ねて送らない
+          //  (2) 同じURLを続けてタップされても案内を連投しない
+          // 一斉配信や手動送信（broadcast / manual）はガードの対象にしない
+          // ——直前に別件の配信があっただけで案内が出ないのを避けるため。
+          const cutoff = new Date(Date.now() - 3 * 60_000 + 9 * 60 * 60_000)
+            .toISOString()
+            .slice(0, -1) + '+09:00';
+          const recent = await db
+            .prepare(
+              `SELECT 1 FROM messages_log
+               WHERE friend_id = ? AND direction = 'outgoing'
+                 AND source IN ('scenario', 'liff_gate')
+                 AND created_at > ?
+               LIMIT 1`,
+            )
+            .bind(friend.id, cutoff)
+            .first();
+
+          if (recent) {
+            pushSkipReason = 'recently_sent';
+          } else {
+            const template = await getMessageTemplateById(db, templateId);
+            if (!template) {
+              pushSkipReason = 'template_not_found';
+            } else {
+              // 送信元アカウントのトークンで送る（マルチアカウント対応）
+              let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
+              let liffIdForForm: string | null = null;
+              if (friend.line_account_id) {
+                const account = await getLineAccountById(db, friend.line_account_id);
+                if (account?.channel_access_token) accessToken = account.channel_access_token;
+                if (account?.liff_id) liffIdForForm = account.liff_id;
+              }
+              if (!liffIdForForm) {
+                const envLiffMatch = (c.env.LIFF_URL || '').match(/liff\.line\.me\/([0-9]+-[A-Za-z0-9]+)/);
+                if (envLiffMatch) liffIdForForm = envLiffMatch[1];
+              }
+
+              // アンケート案内だけはフォームURLの差し込みが必要。
+              // それ以外（お断り・お立場カード）は {formUrl} を持たないので
+              // buildIntroMessage を通さない（既定の特典Flexに化けるため）。
+              let message: unknown;
+              if (segment === 'food' && body.surveyFormId && liffIdForForm) {
+                const formQuery = new URLSearchParams({ page: 'form', id: body.surveyFormId });
+                const formUrl = `https://liff.line.me/${liffIdForForm}?${formQuery.toString()}`;
+                message = buildIntroMessage(template, formUrl);
+              } else {
+                const { buildMessage } = await import('../services/step-delivery.js');
+                message = buildMessage(template.message_type, template.message_content);
+              }
+
+              const { LineClient } = await import('@line-crm/line-sdk');
+              const lineClient = new LineClient(accessToken);
+              await lineClient.pushMessage(lineUserId, [message as any]);
+              pushed = true;
+
+              // 送信を記録する。上のガードがこれを見て連投を防ぎ、
+              // 管理画面のトーク一覧にも実際の配信として表示される。
+              try {
+                const { messageToLogPayload } = await import('../services/step-delivery.js');
+                const logPayload = messageToLogPayload(message as any);
+                const nowIso = new Date(Date.now() + 9 * 60 * 60_000)
+                  .toISOString()
+                  .slice(0, -1) + '+09:00';
+                await db
+                  .prepare(
+                    `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, template_id_at_send, created_at)
+                     VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'liff_gate', ?, ?)`,
+                  )
+                  .bind(
+                    crypto.randomUUID(),
+                    friend.id,
+                    logPayload.messageType,
+                    logPayload.content,
+                    template.id,
+                    nowIso,
+                  )
+                  .run();
+              } catch (logErr) {
+                // 記録に失敗しても送信自体は成功しているので通す
+                console.error('liff gate push log failed (non-blocking):', logErr);
+              }
+            }
+          }
+        }
+      }
+    }
+
     return c.json({
       success: true,
       data: {
@@ -1207,6 +1329,8 @@ liffRoutes.post('/api/liff/gate', async (c) => {
         displayName: friend.display_name,
         isFollowing: Boolean(friend.is_following),
         segment,
+        pushed,
+        pushSkipReason,
       },
     });
   } catch (err) {
