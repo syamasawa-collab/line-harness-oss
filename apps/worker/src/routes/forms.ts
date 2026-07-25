@@ -433,8 +433,18 @@ forms.post('/api/forms/:id/submit', async (c) => {
       }
 
       // Add tag
+      // attachTagAndFireSideEffects を使う（生 INSERT ではない）。フォーム送信は
+      // 自動経路なので、手動付与と同じ side effects——tag_added シナリオの
+      // enrollment と tag_change イベント——を発火させる。生 INSERT のままだと
+      // 「フォーム送信でタグを付け、そのタグでシナリオを起動する」設計が
+      // 黙って動かない。新規付与時のみ発火するので再送信でも冪等。
       if (form.on_submit_tag_id) {
-        sideEffects.push(addTagToFriend(db, friendId, form.on_submit_tag_id));
+        sideEffects.push(
+          (async () => {
+            const { attachTagAndFireSideEffects } = await import('../services/friend-tag-attach.js');
+            await attachTagAndFireSideEffects(db, friendId!, form.on_submit_tag_id!);
+          })(),
+        );
       }
 
       // Enroll in scenario
