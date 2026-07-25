@@ -584,6 +584,22 @@ function showGateDecline(): void {
   `);
 }
 
+/**
+ * 画面下部に診断情報を出す。
+ *
+ * ゲートは「押しても何も起きない」形で失敗すると原因が全く分からない
+ * （実機のログが見えないため）。どこで止まったかを利用者の画面に出して、
+ * 報告だけで切り分けられるようにする。運用が安定したら外してよい。
+ */
+function showGateDiag(info: string): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const el = document.createElement('p');
+  el.style.cssText = 'font-size:11px;color:#9aa0a6;margin-top:16px;text-align:center;word-break:break-all;line-height:1.6;';
+  el.textContent = `診断: ${info}`;
+  app.appendChild(el);
+}
+
 /** 案内はトークに届いた、と伝えてこの画面を閉じる。 */
 function showTalkHandoff(): void {
   renderCard(`
@@ -622,6 +638,12 @@ function showTalkHandoff(): void {
  */
 async function routeGate(idToken: string | null): Promise<void> {
   const cfg = getGateConfig();
+  // idToken が無いと本人確認ができず必ず 401 になる。原因が分かるように明示する。
+  if (!idToken) {
+    showGateRole();
+    showGateDiag('LINEの認証情報(idToken)を取得できませんでした。LINEアプリ内で開いてください。');
+    return;
+  }
   try {
     const res = await apiCall('/api/liff/gate', {
       method: 'POST',
@@ -636,25 +658,35 @@ async function routeGate(idToken: string | null): Promise<void> {
         roleTemplateId: cfg.roleTpl || '',
       }),
     });
-    const json = (await res.json()) as {
-      success: boolean;
+    const raw = await res.text();
+    let json: {
+      success?: boolean;
+      error?: string;
       data?: {
         segment?: 'food' | 'nonfood' | null;
         pushed?: boolean;
         pushSkipReason?: string | null;
       };
-    };
+    } = {};
+    try { json = JSON.parse(raw); } catch { /* 非JSON応答 */ }
     const data = json?.data;
 
     // トークに送れた（または直前に同じ案内が届いている）ならトークへ誘導する
     if (data?.pushed || data?.pushSkipReason === 'recently_sent') {
       showTalkHandoff();
+      if (data?.pushSkipReason === 'recently_sent') {
+        showGateDiag('直近3分に同じ案内を送っているため、今回は送信を省略しました。');
+      }
       return;
     }
 
-    // ここに来るのは push できなかった場合のみ（テンプレ未設定など）。
-    // 何も出さないと行き止まりになるので、従来どおり画面内に表示する。
+    // ここに来るのは push できなかった場合のみ。
+    // 何も出さないと行き止まりになるので、画面内に表示しつつ理由を出す。
     const segment = data?.segment ?? null;
+    const why = data?.pushSkipReason
+      || json?.error
+      || (res.ok ? 'unknown' : `HTTP ${res.status}`);
+    setTimeout(() => showGateDiag(`送信できませんでした（${why} / segment=${segment ?? 'なし'}）`), 0);
     if (segment === 'food') {
       showGateSurvey();
     } else if (segment === 'nonfood') {
@@ -662,9 +694,10 @@ async function routeGate(idToken: string | null): Promise<void> {
     } else {
       showGateRole();
     }
-  } catch {
+  } catch (err) {
     // 判定できないときは、お立場カードから始める（安全側）
     showGateRole();
+    showGateDiag(`通信エラー: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -799,7 +832,12 @@ async function main() {
       const formId = params.get('id');
       await initForm(formId);
     } else if (page === 'gate') {
-      await initGate();
+      try {
+        await initGate();
+      } catch (err) {
+        showGateRole();
+        showGateDiag(`初期化エラー: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } else if (!page) {
       await linkAndAddFlow();
     } else {
