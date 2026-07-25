@@ -20,6 +20,7 @@ import {
   jstNow,
 } from '@line-crm/db';
 import { buildIntroMessage } from '../services/intro-message.js';
+import { isTagOnlyStep } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
 
 const liffRoutes = new Hono<Env>();
@@ -208,6 +209,8 @@ async function applyRefAttribution(
       });
       // Resolve template_id → templates table (参照型)
       const resolved = await resolveStepContent(db, firstStep);
+      // 本文が空のステップは「タグ付けだけのステップ」→ 送信しない
+      if (isTagOnlyStep(resolved.messageContent)) return;
       const expanded = expandVariables(
         resolved.messageContent,
         { ...fresh, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1],
@@ -901,6 +904,9 @@ liffRoutes.get('/auth/callback', async (c) => {
                   { ...friend, metadata: resolvedMetaLiff } as Parameters<typeof expandVariables>[1],
                   c.env.WORKER_URL,
                 );
+                // 本文が空のステップは「タグ付けだけのステップ」→ 送信しない
+                const tagOnlyStep = isTagOnlyStep(resolved.messageContent);
+                if (!tagOnlyStep) {
                 const pushedMessage = buildMessage(resolved.messageType, expandedContent);
                 await lineClient.pushMessage(lineUserId, [pushedMessage]);
 
@@ -924,6 +930,7 @@ liffRoutes.get('/auth/callback', async (c) => {
                     nowIso,
                   )
                   .run();
+                }
 
                 // 到達タグ付与 (push 後)
                 if (firstStep.on_reach_tag_id) {

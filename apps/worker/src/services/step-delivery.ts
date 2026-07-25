@@ -210,6 +210,28 @@ async function processSingleDelivery(
   // Resolve template_id → templates table (参照型). template_id 未設定なら step 値そのまま。
   const resolved = await resolveStepContent(db, currentStep);
 
+  // メッセージ本文が空のステップは「タグ付けだけのステップ」として扱う。
+  // 送信はせず、到達タグの付与とステップの進行だけを行う。
+  // （空文字を LINE に送ることはできないので、この扱いに実害はない）
+  if (isTagOnlyStep(resolved.messageContent)) {
+    const nextStepTagOnly = steps[steps.indexOf(currentStep) + 1] ?? null;
+    if (nextStepTagOnly) {
+      const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStepTagOnly));
+      await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
+    } else {
+      await completeFriendScenario(db, fs.id);
+    }
+    if (currentStep.on_reach_tag_id) {
+      try {
+        const { attachTagAndFireSideEffects } = await import('./friend-tag-attach.js');
+        await attachTagAndFireSideEffects(db, friend.id, currentStep.on_reach_tag_id);
+      } catch (err) {
+        console.error(`[scenario] tag attach failed step=${currentStep.id}:`, err);
+      }
+    }
+    return true;
+  }
+
   // Expand template variables ({{name}}, {{uid}}, {{auth_url:CHANNEL_ID}}, {{metadata.KEY}}, etc.)
   const resolvedMeta = await resolveMetadata(db, { user_id: (friend as unknown as Record<string, string | null>).user_id, metadata: (friend as unknown as Record<string, string | null>).metadata });
   const friendWithMeta = { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1];
@@ -403,6 +425,21 @@ export function messageToLogPayload(message: Message): { messageType: string; co
     };
   }
   return { messageType: message.type, content: JSON.stringify(message) };
+}
+
+/**
+ * 「タグ付けだけのステップ」かどうか。
+ *
+ * 本文が空（空白のみ）のステップは、メッセージを送らずに到達タグの付与と
+ * ステップの進行だけを行う。運用上の用途は「文章は出したくないが、
+ * フラグ用のタグは付けたい」ケース——たとえばフォーム送信後に
+ * 「回答済み」タグだけを付け、リマインダーの配信条件に使う場合。
+ *
+ * 空文字は LINE に送信できない（API エラーになる）ので、この扱いによって
+ * 送れていたものが送れなくなることはない。
+ */
+export function isTagOnlyStep(messageContent: string | null | undefined): boolean {
+  return !messageContent || messageContent.trim() === '';
 }
 
 export function buildMessage(messageType: string, messageContent: string, altText?: string): Message {

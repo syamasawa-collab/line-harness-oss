@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { evaluateCondition, isSupportedConditionType, SUPPORTED_CONDITION_TYPES } from './step-delivery.js';
+import { evaluateCondition, isSupportedConditionType, isTagOnlyStep, SUPPORTED_CONDITION_TYPES } from './step-delivery.js';
 
 /**
  * Regression coverage for OSS issue #120 — scenario step
@@ -208,4 +208,26 @@ describe('evaluateCondition', () => {
       expect(result).toBe(false);
     });
   });
+});
+
+/**
+ * 「タグ付けだけのステップ」の判定。
+ * 本文が空のステップは、メッセージを送らずに到達タグの付与とステップ進行だけを行う。
+ * 用途は「文章は出したくないが、フラグ用のタグは付けたい」ケース
+ * （例: フォーム送信後に『回答済み』タグだけを付け、リマインダーの条件に使う）。
+ */
+describe('isTagOnlyStep', () => {
+  it.each(['', ' ', '   ', '\n', '\t\n ', null, undefined])(
+    '本文が空 (%j) ならタグ付けのみ',
+    (content) => {
+      expect(isTagOnlyStep(content as string | null | undefined)).toBe(true);
+    },
+  );
+
+  it.each(['こんにちは', '{"type":"bubble"}', '0', ' a '])(
+    '本文があれば通常配信 (%j)',
+    (content) => {
+      expect(isTagOnlyStep(content)).toBe(false);
+    },
+  );
 });
