@@ -120,9 +120,12 @@ export async function publishRichMenuGroup(
     }
 
     // 1. richmenu 作成
+    // selected: トーク画面を開いた時点でメニューを開いた状態で見せるか。
+    // LINE 側は richmenu 作成時にしか受け付けず後から変更できないため、
+    // 「開いた状態」を既定にして公開する（畳んだ状態だと導線に気づかれにくい）。
     const created = await line.createRichMenu({
       size: dimensions,
-      selected: false,
+      selected: true,
       name: `${group.id.slice(0, 8)} - ${page.name}`,
       chatBarText: group.chatBarText,
       areas: page.areas.map((a) => ({
