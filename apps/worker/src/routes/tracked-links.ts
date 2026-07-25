@@ -117,6 +117,7 @@ trackedLinks.patch('/api/tracked-links/:id', async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json<{
       name?: string;
+      originalUrl?: string;
       tagId?: string | null;
       scenarioId?: string | null;
       introTemplateId?: string | null;
