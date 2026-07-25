@@ -269,6 +269,17 @@ forms.post('/api/forms/:id/partial', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
+    // saveToMetadata が false のフォームは、回答を友だちの metadata に書かない。
+    // 送信時（/submit）と同じ扱いにする。ここを無条件に書いていたため、
+    // 「アンケート回答が友だち詳細に出る」状態がフラグを切っても残っていた。
+    const form = await getFormById(c.env.DB, formId);
+    if (!form) {
+      return c.json({ success: false, error: 'Form not found' }, 404);
+    }
+    if (!form.save_to_metadata) {
+      return c.json({ success: true, data: { savedToMetadata: false } });
+    }
+
     // Save survey data to friend metadata (merge with existing)
     const existingMeta = friend.metadata ? JSON.parse(friend.metadata) : {};
     const merged = { ...existingMeta, ...body.data };
@@ -276,7 +287,7 @@ forms.post('/api/forms/:id/partial', async (c) => {
       'UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?',
     ).bind(JSON.stringify(merged), jstNow(), friend.id).run();
 
-    return c.json({ success: true });
+    return c.json({ success: true, data: { savedToMetadata: true } });
   } catch (err) {
     console.error('POST /api/forms/:id/partial error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
