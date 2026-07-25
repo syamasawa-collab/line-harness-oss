@@ -45,6 +45,27 @@ export function isSafeTargetUrl(url: string): boolean {
   return /^https:\/\/[^\s"'<>]+$/.test(url);
 }
 
+/**
+ * 独自サブドメイン（例 `vor.shokudanren.jp`）から Netlify の 200 プロキシで
+ * 配信する場合、リクエストの host は workers.dev のままになる。
+ * OGP の `og:url` と共有URLがそのままだと「配布したURLと違うURL」が
+ * プレビューに出るため、プロキシが付ける `X-Forwarded-Host` を採用する。
+ *
+ * 値はクライアントが自由に付けられるヘッダなので、**自社ドメインだけ**を
+ * 許可する（ここで通した文字列はページのHTMLに出る）。
+ */
+const TRUSTED_FORWARDED_HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.shokudanren\.jp$/;
+
+export function resolvePublicOrigin(requestUrl: string, forwardedHost: string | null): string {
+  const host = (forwardedHost || '').split(',')[0]?.trim().toLowerCase() ?? '';
+  if (TRUSTED_FORWARDED_HOST.test(host)) return `https://${host}`;
+  return new URL(requestUrl).origin;
+}
+
+function publicOrigin(c: { req: { url: string; header: (name: string) => string | undefined } }): string {
+  return resolvePublicOrigin(c.req.url, c.req.header('X-Forwarded-Host') ?? null);
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -196,7 +217,7 @@ launchers.get('/s/:slug', async (c) => {
       }),
   );
 
-  return c.html(renderPage(row, new URL(c.req.url).origin), 200, {
+  return c.html(renderPage(row, publicOrigin(c)), 200, {
     'Cache-Control': 'no-store',
   });
 });
@@ -207,7 +228,7 @@ launchers.get('/api/launchers', async (c) => {
     const result = await c.env.DB
       .prepare('SELECT * FROM launchers ORDER BY slug ASC')
       .all<LauncherRow>();
-    const origin = new URL(c.req.url).origin;
+    const origin = publicOrigin(c);
     return c.json({ success: true, data: result.results.map((r) => serialize(r, origin)) });
   } catch (err) {
     console.error('GET /api/launchers error:', err);
@@ -272,7 +293,7 @@ launchers.post('/api/launchers', async (c) => {
       .prepare('SELECT * FROM launchers WHERE slug = ?')
       .bind(body.slug)
       .first<LauncherRow>();
-    return c.json({ success: true, data: serialize(row!, new URL(c.req.url).origin) }, 201);
+    return c.json({ success: true, data: serialize(row!, publicOrigin(c)) }, 201);
   } catch (err) {
     console.error('POST /api/launchers error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -329,7 +350,7 @@ launchers.patch('/api/launchers/:slug', async (c) => {
       .prepare('SELECT * FROM launchers WHERE slug = ?')
       .bind(slug)
       .first<LauncherRow>();
-    return c.json({ success: true, data: serialize(row!, new URL(c.req.url).origin) });
+    return c.json({ success: true, data: serialize(row!, publicOrigin(c)) });
   } catch (err) {
     console.error('PATCH /api/launchers/:slug error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
