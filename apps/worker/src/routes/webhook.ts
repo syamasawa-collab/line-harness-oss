@@ -22,7 +22,7 @@ import {
 } from '@line-crm/db';
 import type { EntryRoute } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
-import { buildMessage, expandVariables } from '../services/step-delivery.js';
+import { buildMessage, expandVariables, isTagOnlyStep } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -307,22 +307,26 @@ async function handleEvent(
                 const { resolveMetadata } = await import('../services/step-delivery.js');
                 const resolvedMeta = await resolveMetadata(db, { user_id: (friend as unknown as Record<string, string | null>).user_id, metadata: (friend as unknown as Record<string, string | null>).metadata });
                 const expandedContent = expandVariables(resolved.messageContent, { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1]);
-                const message = buildMessage(resolved.messageType, expandedContent);
-                await lineClient.replyMessage(event.replyToken, [message]);
-                console.log(`Immediate delivery: sent step ${firstStep.id} to ${userId}`);
+                // 本文が空のステップは「タグ付けだけのステップ」→ 送信しない
+                const tagOnly = isTagOnlyStep(resolved.messageContent);
+                if (!tagOnly) {
+                  const message = buildMessage(resolved.messageType, expandedContent);
+                  await lineClient.replyMessage(event.replyToken, [message]);
+                  console.log(`Immediate delivery: sent step ${firstStep.id} to ${userId}`);
 
-                // Log what was actually delivered (post buildMessage normalization)
-                // so the dashboard chat view mirrors LINE 1:1.
-                const logId = crypto.randomUUID();
-                const { messageToLogPayload: logPayload1 } = await import('../services/step-delivery.js');
-                const wbScenarioPayload = logPayload1(message);
-                await db
-                  .prepare(
-                    `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, template_id_at_send, created_at)
-                     VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, 'reply', 'scenario', ?, ?)`,
-                  )
-                  .bind(logId, friend.id, wbScenarioPayload.messageType, wbScenarioPayload.content, firstStep.id, resolved.templateIdAtSend, jstNow())
-                  .run();
+                  // Log what was actually delivered (post buildMessage normalization)
+                  // so the dashboard chat view mirrors LINE 1:1.
+                  const logId = crypto.randomUUID();
+                  const { messageToLogPayload: logPayload1 } = await import('../services/step-delivery.js');
+                  const wbScenarioPayload = logPayload1(message);
+                  await db
+                    .prepare(
+                      `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, template_id_at_send, created_at)
+                       VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, 'reply', 'scenario', ?, ?)`,
+                    )
+                    .bind(logId, friend.id, wbScenarioPayload.messageType, wbScenarioPayload.content, firstStep.id, resolved.templateIdAtSend, jstNow())
+                    .run();
+                }
 
                 // Advance or complete the friend_scenario — step 2 のスケジュールも
                 // computeNextDeliveryAt で計算する（elapsed/absolute_time で正しく動かすため）
