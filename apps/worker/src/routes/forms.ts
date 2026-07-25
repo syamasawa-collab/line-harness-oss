@@ -11,7 +11,8 @@ import {
   jstNow,
 } from '@line-crm/db';
 import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
-import { addTagToFriend, enrollFriendInScenario } from '@line-crm/db';
+import { enrollFriendInScenario } from '@line-crm/db';
+import { fireEvent } from '../services/event-bus.js';
 import type {
   Form as DbForm,
   FormSubmission as DbFormSubmission,
@@ -31,6 +32,7 @@ function serializeForm(
     description: row.description,
     fields: JSON.parse(row.fields || '[]') as unknown[],
     onSubmitTagId: row.on_submit_tag_id,
+    onSubmitRemoveTagId: row.on_submit_remove_tag_id,
     onSubmitScenarioId: row.on_submit_scenario_id,
     onSubmitMessageType: row.on_submit_message_type,
     onSubmitMessageContent: row.on_submit_message_content,
@@ -100,6 +102,7 @@ forms.post('/api/forms', async (c) => {
       description?: string | null;
       fields?: unknown[];
       onSubmitTagId?: string | null;
+      onSubmitRemoveTagId?: string | null;
       onSubmitScenarioId?: string | null;
       onSubmitMessageType?: 'text' | 'flex' | null;
       onSubmitMessageContent?: string | null;
@@ -118,6 +121,7 @@ forms.post('/api/forms', async (c) => {
       description: body.description ?? null,
       fields: JSON.stringify(body.fields ?? []),
       onSubmitTagId: body.onSubmitTagId ?? null,
+      onSubmitRemoveTagId: body.onSubmitRemoveTagId ?? null,
       onSubmitScenarioId: body.onSubmitScenarioId ?? null,
       onSubmitMessageType: body.onSubmitMessageType ?? null,
       onSubmitMessageContent: body.onSubmitMessageContent ?? null,
@@ -143,6 +147,7 @@ forms.put('/api/forms/:id', async (c) => {
       description?: string | null;
       fields?: unknown[];
       onSubmitTagId?: string | null;
+      onSubmitRemoveTagId?: string | null;
       onSubmitScenarioId?: string | null;
       onSubmitMessageType?: 'text' | 'flex' | null;
       onSubmitMessageContent?: string | null;
@@ -159,6 +164,7 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.description !== undefined) updates.description = body.description;
     if (body.fields !== undefined) updates.fields = JSON.stringify(body.fields);
     if (body.onSubmitTagId !== undefined) updates.onSubmitTagId = body.onSubmitTagId;
+    if (body.onSubmitRemoveTagId !== undefined) updates.onSubmitRemoveTagId = body.onSubmitRemoveTagId;
     if (body.onSubmitScenarioId !== undefined) updates.onSubmitScenarioId = body.onSubmitScenarioId;
     if (body.onSubmitMessageType !== undefined) updates.onSubmitMessageType = body.onSubmitMessageType;
     if (body.onSubmitMessageContent !== undefined) updates.onSubmitMessageContent = body.onSubmitMessageContent;
@@ -443,6 +449,23 @@ forms.post('/api/forms/:id/submit', async (c) => {
           (async () => {
             const { attachTagAndFireSideEffects } = await import('../services/friend-tag-attach.js');
             await attachTagAndFireSideEffects(db, friendId!, form.on_submit_tag_id!);
+          })(),
+        );
+      }
+
+      // Remove tag — 排他的な属性のため「反対側のタグ」を外す。
+      // タグは付与されるだけで外れないので、これが無いと両方のお立場フォームを
+      // 送った人が両方のタグを持ち、判定・セグメント配信・集計が実態とずれる。
+      // 手動削除 (DELETE /api/friends/:id/tags/:tagId) と同じく tag_change を発火する。
+      if (form.on_submit_remove_tag_id) {
+        sideEffects.push(
+          (async () => {
+            const { removeTagFromFriend } = await import('@line-crm/db');
+            await removeTagFromFriend(db, friendId!, form.on_submit_remove_tag_id!);
+            await fireEvent(db, 'tag_change', {
+              friendId: friendId!,
+              eventData: { tagId: form.on_submit_remove_tag_id, action: 'remove' },
+            });
           })(),
         );
       }

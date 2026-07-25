@@ -9,6 +9,13 @@ export interface Form {
   description: string | null;
   fields: string; // JSON string of FormField[]
   on_submit_tag_id: string | null;
+  /**
+   * 送信時に「外す」タグ。null なら何も外さない。
+   * 排他的な属性（例: 飲食店 / 飲食店以外のお立場）を扱うための項目。
+   * タグは付与されるだけで外れないため、これが無いと両方のボタンを押した人が
+   * 両方のタグを持ち、判定・セグメント配信・集計が実態とずれる。
+   */
+  on_submit_remove_tag_id: string | null;
   on_submit_scenario_id: string | null;
   on_submit_message_type: 'text' | 'flex' | null;
   on_submit_message_content: string | null; // supports template variables: {{name}}, {{auth_url:CHANNEL_ID}}, etc.
@@ -109,6 +116,7 @@ export interface CreateFormInput {
   description?: string | null;
   fields: string; // JSON string
   onSubmitTagId?: string | null;
+  onSubmitRemoveTagId?: string | null;
   onSubmitScenarioId?: string | null;
   onSubmitMessageType?: 'text' | 'flex' | null;
   onSubmitMessageContent?: string | null;
@@ -125,11 +133,11 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
   await db
     .prepare(
       `INSERT INTO forms
-         (id, name, description, fields, on_submit_tag_id, on_submit_scenario_id,
+         (id, name, description, fields, on_submit_tag_id, on_submit_remove_tag_id, on_submit_scenario_id,
           on_submit_message_type, on_submit_message_content,
           on_submit_webhook_url, on_submit_webhook_headers, on_submit_webhook_fail_message,
           save_to_metadata, is_active, submit_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     )
     .bind(
       id,
@@ -137,6 +145,7 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
       input.description ?? null,
       input.fields,
       input.onSubmitTagId ?? null,
+      input.onSubmitRemoveTagId ?? null,
       input.onSubmitScenarioId ?? null,
       input.onSubmitMessageType ?? null,
       input.onSubmitMessageContent ?? null,
@@ -157,6 +166,7 @@ export interface UpdateFormInput {
   description?: string | null;
   fields?: string;
   onSubmitTagId?: string | null;
+  onSubmitRemoveTagId?: string | null;
   onSubmitScenarioId?: string | null;
   onSubmitMessageType?: 'text' | 'flex' | null;
   onSubmitMessageContent?: string | null;
@@ -184,6 +194,7 @@ export async function updateForm(
            description = ?,
            fields = ?,
            on_submit_tag_id = ?,
+           on_submit_remove_tag_id = ?,
            on_submit_scenario_id = ?,
            on_submit_message_type = ?,
            on_submit_message_content = ?,
@@ -200,6 +211,9 @@ export async function updateForm(
       'description' in input ? (input.description ?? null) : existing.description,
       input.fields ?? existing.fields,
       'onSubmitTagId' in input ? (input.onSubmitTagId ?? null) : existing.on_submit_tag_id,
+      'onSubmitRemoveTagId' in input
+        ? (input.onSubmitRemoveTagId ?? null)
+        : existing.on_submit_remove_tag_id,
       'onSubmitScenarioId' in input
         ? (input.onSubmitScenarioId ?? null)
         : existing.on_submit_scenario_id,

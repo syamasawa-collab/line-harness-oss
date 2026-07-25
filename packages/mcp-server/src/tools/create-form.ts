@@ -21,6 +21,10 @@ export function registerCreateForm(server: McpServer): void {
         .string()
         .optional()
         .describe("Tag ID to auto-apply when form is submitted"),
+      onSubmitRemoveTagId: z
+        .string()
+        .optional()
+        .describe("Tag ID to REMOVE when the form is submitted (null to clear). Use for mutually exclusive attributes: tags are only ever added, so someone who submits both of a pair of forms (e.g. restaurant / non-restaurant role registration) ends up holding both tags, which skews later branching, segmented broadcasts and reporting. Set each form to remove its counterpart so only the latest choice remains."),
       onSubmitScenarioId: z
         .string()
         .optional()
@@ -47,6 +51,7 @@ export function registerCreateForm(server: McpServer): void {
       description,
       fields,
       onSubmitTagId,
+      onSubmitRemoveTagId,
       onSubmitScenarioId,
       onSubmitMessageType,
       onSubmitMessageContent,
@@ -59,6 +64,7 @@ export function registerCreateForm(server: McpServer): void {
           description,
           fields: JSON.parse(fields),
           onSubmitTagId,
+          onSubmitRemoveTagId,
           onSubmitScenarioId,
           onSubmitMessageType,
           onSubmitMessageContent,
