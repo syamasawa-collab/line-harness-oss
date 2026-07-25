@@ -264,9 +264,16 @@ async function processSingleDelivery(
 
   // 到達タグ付与 (advance / complete の後 = 再送が起きてもタグ付与は影響しない順序)
   // 失敗してもログに残すだけで配信フローは止めない。
+  //
+  // attachTagAndFireSideEffects を使う（生 INSERT ではない）。到達タグ付与は
+  // 自動経路なので、手動付与 (POST /api/friends/:id/tags) と同じ side effects
+  // ——tag_added シナリオの enrollment と tag_change イベント——を発火させる。
+  // 生 INSERT のままだと「シナリオでタグを付け、そのタグで次のシナリオを起動する」
+  // という設計が黙って動かない。新規付与時のみ発火するので再送でも冪等。
   if (currentStep.on_reach_tag_id) {
     try {
-      await addTagToFriend(db, friend.id, currentStep.on_reach_tag_id);
+      const { attachTagAndFireSideEffects } = await import('./friend-tag-attach.js');
+      await attachTagAndFireSideEffects(db, friend.id, currentStep.on_reach_tag_id);
     } catch (err) {
       console.error(`[scenario] tag attach failed step=${currentStep.id}:`, err);
     }
