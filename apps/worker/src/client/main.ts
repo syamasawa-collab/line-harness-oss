@@ -490,97 +490,26 @@ function renderCard(inner: string): void {
   container.innerHTML = `<div class="card">${inner}</div>`;
 }
 
-// アンケートのリンクをトークにも1通だけ送る。
-// 「今は時間がない」人が離脱しても、トークに残ったリンクから後で回答できる。
-// 端末をまたいでも二重送信しないよう、localStorage と メモリ両方で見張る。
-let _gateLinkPushed = false;
-
-function gateSentKey(formId: string): string {
-  return `lh_gate_link_sent_${formId}`;
-}
-
-function pushSurveyLinkToTalk(): void {
-  const cfg = getGateConfig();
-  if (!cfg.survey || _gateLinkPushed) return;
-  try {
-    if (localStorage.getItem(gateSentKey(cfg.survey))) return;
-  } catch { /* localStorage 不可でもメモリ側の見張りで足りる */ }
-  _gateLinkPushed = true;
-
-  void (async () => {
-    try {
-      const profile = await liff.getProfile();
-      const idToken = liff.getIDToken();
-      const res = await apiCall('/api/liff/send-form-link', {
-        method: 'POST',
-        body: JSON.stringify({
-          lineUserId: profile.userId,
-          formId: cfg.survey,
-          idToken: idToken || '',
-          ref: cfg.ref || '',
-        }),
-      });
-      if (res.ok) {
-        try { localStorage.setItem(gateSentKey(cfg.survey!), String(Date.now())); } catch { /* silent */ }
-      } else {
-        _gateLinkPushed = false; // 失敗したら次の機会に再送を許す
-      }
-    } catch {
-      _gateLinkPushed = false;
-    }
-  })();
-}
-
-function showGateSurvey(): void {
-  const cfg = getGateConfig();
-  // トークにもリンクを送っておく（後回しにする人の取りこぼしを防ぐ）
-  pushSurveyLinkToTalk();
-  renderCard(`
-    <h2>アンケートのお願い</h2>
-    <p class="message">
-      いつもありがとうございます。<br>
-      「特定技能1号『外食業』受入停止に関する飲食業界実態調査」へのご協力をお願いいたします。<br>
-      現場の声を集め、業界の実態を国や関係機関へ届けるための調査です。
-    </p>
-    ${cfg.survey
-      ? `<a href="${formUrl(cfg.survey)}" class="add-friend-btn">アンケートに回答する</a>`
-      : `<p class="error">フォームが設定されていません。</p>`}
-    <p class="sub-message" style="margin-top:14px;text-align:left;line-height:1.7;">
-      いまお時間がない方は、このまま閉じていただいて大丈夫です。<br>
-      <strong>トーク画面にアンケートのリンクをお送りしています</strong>ので、
-      後ほどご都合のよいときにご回答ください。<br>
-      回答は自動保存されますので、途中で中断しても続きから再開できます。
-    </p>
-  `);
-}
-
+// お立場カード（フォールバック表示用）。
+//
+// 案内は原則トークへ送る。この画面内表示は push できなかったときだけ使う
+// （行き止まりを作らないための保険）。分岐はトーク側と同じく
+// 「どちらのお立場フォームを送信したか」で決まるため、ここでは
+// 2つのフォームへのリンクを出すだけでよい。
 function showGateRole(): void {
-  // お立場カード（飲食業／それ以外の二択）。回答に応じて、そのまま
-  // 同じ画面内でアンケート依頼（飲食業）／お断り（それ以外）へ遷移する。
-  // チャットへのpushに依存しないので「アンケートが出てこない」問題が起きない。
+  const cfg = getGateConfig();
   renderCard(`
     <h2>はじめに</h2>
     <p class="message">
       ご登録ありがとうございます。<br>
-      本アンケートは、飲食店の経営・運営に携わる方を対象にしています。<br>
-      あなたのお立場をお聞かせください。
+      あなたのお立場をお聞かせください（30秒で終わります）。
     </p>
-    <button type="button" class="add-friend-btn" id="gateRoleFood">飲食店の経営・運営に携わっている</button>
-    <button type="button" class="add-friend-btn" id="gateRoleOther" style="margin-top:12px;background:#f0f0f0;color:#333;">それ以外</button>
-  `);
-  document.getElementById('gateRoleFood')?.addEventListener('click', () => showGateSurvey());
-  document.getElementById('gateRoleOther')?.addEventListener('click', () => showGateDecline());
-}
-
-function showGateDecline(): void {
-  renderCard(`
-    <div class="check-icon">🙏</div>
-    <h2>ありがとうございます</h2>
-    <p class="message">
-      今回のアンケートは飲食店の方を対象に実施しております。<br>
-      ご関心をお寄せいただきありがとうございました。<br>
-      引き続き、食団連からの情報をお届けします。
-    </p>
+    ${cfg.food
+      ? `<a href="${formUrl(cfg.food)}" class="add-friend-btn">飲食店の方はこちら</a>`
+      : ''}
+    ${cfg.nonfood
+      ? `<a href="${formUrl(cfg.nonfood)}" class="add-friend-btn" style="margin-top:12px;background:#f0f0f0;color:#333;">飲食店以外の方はこちら</a>`
+      : ''}
   `);
 }
 
@@ -619,19 +548,12 @@ async function routeGate(idToken: string | null): Promise<void> {
         foodTagId: cfg.foodTag || '',
         nonfoodTagId: cfg.nonfoodTag || '',
         push: true,
-        surveyFormId: cfg.survey || '',
-        foodTemplateId: cfg.foodTpl || '',
-        nonfoodTemplateId: cfg.nonfoodTpl || '',
         roleTemplateId: cfg.roleTpl || '',
       }),
     });
     const json = (await res.json()) as {
       success: boolean;
-      data?: {
-        segment?: 'food' | 'nonfood' | null;
-        pushed?: boolean;
-        pushSkipReason?: string | null;
-      };
+      data?: { pushed?: boolean; pushSkipReason?: string | null };
     };
     const data = json?.data;
 
@@ -642,15 +564,8 @@ async function routeGate(idToken: string | null): Promise<void> {
     }
 
     // ここに来るのは push できなかった場合のみ（テンプレ未設定など）。
-    // 何も出さないと行き止まりになるので、従来どおり画面内に表示する。
-    const segment = data?.segment ?? null;
-    if (segment === 'food') {
-      showGateSurvey();
-    } else if (segment === 'nonfood') {
-      showGateDecline();
-    } else {
-      showGateRole();
-    }
+    // 何も出さないと行き止まりになるので、画面内にお立場カードを出す。
+    showGateRole();
   } catch {
     // 判定できないときは、お立場カードから始める（安全側）
     showGateRole();

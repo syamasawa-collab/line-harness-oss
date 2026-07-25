@@ -1150,14 +1150,15 @@ liffRoutes.post('/api/liff/gate', async (c) => {
       idToken: string;
       foodTagId?: string;
       nonfoodTagId?: string;
-      /** true なら判定結果に対応する案内をトークへ push する */
+      /** true ならお立場カードをトークへ push する */
       push?: boolean;
-      /** アンケートフォームID（案内カードの {formUrl} に差し込む） */
+      /** トークへ送るお立場カードのテンプレートID */
+      roleTemplateId?: string;
+      // 以下は現在未使用。すでに配布済みのURLがこれらを送ってくるため、
+      // 受け取っても無害なように型だけ残す（送るカードには影響しない）。
       surveyFormId?: string;
-      /** segment ごとに送るメッセージテンプレートID */
       foodTemplateId?: string;
       nonfoodTemplateId?: string;
-      roleTemplateId?: string;
     }>();
 
     if (!body.idToken) {
@@ -1232,11 +1233,17 @@ liffRoutes.post('/api/liff/gate', async (c) => {
         // friend_add シナリオが案内を出すため、ここでは何もしない。
         pushSkipReason = 'not_following';
       } else {
-        const templateId = segment === 'food'
-          ? body.foodTemplateId
-          : segment === 'nonfood'
-            ? body.nonfoodTemplateId
-            : body.roleTemplateId;
+        // 常に「お立場カード」を送る。
+        //
+        // 以前は登録済みタグで出し分けていた（飲食店ならアンケート依頼、
+        // 非飲食ならお断りを直接送る）が、運用上それは望まれなかった。
+        // リンクを踏んだ人の立場からは「押したら突然お断りが来た」と映り、
+        // 何を聞かれているのか分からないため。
+        // 分岐は**お立場カードに答えた結果**で決まる方式に統一する
+        // （飲食店フォーム送信 → アンケート依頼／非飲食フォーム送信 → お断り。
+        //  いずれもフォームの送信後メッセージで即時に届く）。
+        // segment はレスポンスに含めるだけで、送るカードには影響しない。
+        const templateId = body.roleTemplateId;
 
         if (!templateId) {
           pushSkipReason = 'no_template';
@@ -1270,29 +1277,16 @@ liffRoutes.post('/api/liff/gate', async (c) => {
             } else {
               // 送信元アカウントのトークンで送る（マルチアカウント対応）
               let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-              let liffIdForForm: string | null = null;
               if (friend.line_account_id) {
                 const account = await getLineAccountById(db, friend.line_account_id);
                 if (account?.channel_access_token) accessToken = account.channel_access_token;
-                if (account?.liff_id) liffIdForForm = account.liff_id;
-              }
-              if (!liffIdForForm) {
-                const envLiffMatch = (c.env.LIFF_URL || '').match(/liff\.line\.me\/([0-9]+-[A-Za-z0-9]+)/);
-                if (envLiffMatch) liffIdForForm = envLiffMatch[1];
               }
 
-              // アンケート案内だけはフォームURLの差し込みが必要。
-              // それ以外（お断り・お立場カード）は {formUrl} を持たないので
-              // buildIntroMessage を通さない（既定の特典Flexに化けるため）。
-              let message: unknown;
-              if (segment === 'food' && body.surveyFormId && liffIdForForm) {
-                const formQuery = new URLSearchParams({ page: 'form', id: body.surveyFormId });
-                const formUrl = `https://liff.line.me/${liffIdForForm}?${formQuery.toString()}`;
-                message = buildIntroMessage(template, formUrl);
-              } else {
-                const { buildMessage } = await import('../services/step-delivery.js');
-                message = buildMessage(template.message_type, template.message_content);
-              }
+              // お立場カードはフォームURLを直接持つため、{formUrl} の差し込みは不要。
+              // buildIntroMessage は通さない（{formUrl} を含まないテンプレートを
+              // 渡すと既定の「特典」Flex に化けるため）。
+              const { buildMessage } = await import('../services/step-delivery.js');
+              const message: unknown = buildMessage(template.message_type, template.message_content);
 
               const { LineClient } = await import('@line-crm/line-sdk');
               const lineClient = new LineClient(accessToken);
