@@ -23,6 +23,12 @@ export interface Form {
   on_submit_webhook_headers: string | null;
   on_submit_webhook_fail_message: string | null;
   save_to_metadata: number;
+  /**
+   * metadata に保存する項目名のJSON配列。NULL なら全項目（従来の挙動）。
+   * アンケートの回答を友だち詳細に出さず、氏名・会社名等の属性だけを
+   * 残したい場合に使う。save_to_metadata = 0 のときは何も保存しない。
+   */
+  metadata_fields: string | null;
   is_active: number;
   submit_count: number;
   created_at: string;
@@ -124,6 +130,7 @@ export interface CreateFormInput {
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
   saveToMetadata?: boolean;
+  metadataFields?: string[] | null;
 }
 
 export async function createForm(db: D1Database, input: CreateFormInput): Promise<Form> {
@@ -136,8 +143,8 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
          (id, name, description, fields, on_submit_tag_id, on_submit_remove_tag_id, on_submit_scenario_id,
           on_submit_message_type, on_submit_message_content,
           on_submit_webhook_url, on_submit_webhook_headers, on_submit_webhook_fail_message,
-          save_to_metadata, is_active, submit_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+          save_to_metadata, metadata_fields, is_active, submit_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     )
     .bind(
       id,
@@ -153,6 +160,7 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
       input.onSubmitWebhookHeaders ?? null,
       input.onSubmitWebhookFailMessage ?? null,
       input.saveToMetadata !== false ? 1 : 0,
+      input.metadataFields ? JSON.stringify(input.metadataFields) : null,
       now,
       now,
     )
@@ -174,6 +182,7 @@ export interface UpdateFormInput {
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
   saveToMetadata?: boolean;
+  metadataFields?: string[] | null;
   isActive?: boolean;
 }
 
@@ -202,6 +211,7 @@ export async function updateForm(
            on_submit_webhook_headers = ?,
            on_submit_webhook_fail_message = ?,
            save_to_metadata = ?,
+           metadata_fields = ?,
            is_active = ?,
            updated_at = ?
        WHERE id = ?`,
@@ -235,6 +245,9 @@ export async function updateForm(
       'saveToMetadata' in input
         ? (input.saveToMetadata !== false ? 1 : 0)
         : existing.save_to_metadata,
+      'metadataFields' in input
+        ? (input.metadataFields ? JSON.stringify(input.metadataFields) : null)
+        : existing.metadata_fields,
       'isActive' in input ? (input.isActive ? 1 : 0) : existing.is_active,
       now,
       id,
