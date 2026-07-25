@@ -588,17 +588,28 @@ function showGateDecline(): void {
 function showTalkHandoff(): void {
   renderCard(`
     <div class="check-icon">💬</div>
-    <h2>トーク画面をご確認ください</h2>
+    <h2>ご案内をトークにお送りしました</h2>
     <p class="message">
-      ご案内をトークにお送りしました。<br>
-      この画面は閉じて大丈夫です。
+      このままトーク画面に移動します。
     </p>
   `);
-  if (liff.isInClient()) {
-    setTimeout(() => {
+
+  // トーク画面へ能動的に移動する。
+  //
+  // closeWindow だけだと「どこに戻るか」が LIFF の開き方に依存し、
+  // 公式アカウントのトークとは限らない（SNS や外部ブラウザから来た場合は
+  // LINE のホーム等に戻る）。カードはトークに届いているので、そこへ
+  // 連れて行かないと利用者はカードを見ずに終わってしまう。
+  // BOT_BASIC_ID が取れなかったときだけ、従来どおり閉じる。
+  setTimeout(() => {
+    if (BOT_BASIC_ID) {
+      window.location.href = `https://line.me/R/oaMessage/${BOT_BASIC_ID}/`;
+      return;
+    }
+    if (liff.isInClient()) {
       try { liff.closeWindow(); } catch { /* ignore */ }
-    }, 2200);
-  }
+    }
+  }, 1600);
 }
 
 /**
