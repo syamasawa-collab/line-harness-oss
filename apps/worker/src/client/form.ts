@@ -26,11 +26,13 @@ const FORM_VERSION = '2.2.0'; // cache buster
 interface FormField {
   name: string;
   label: string;
-  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'heading';
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'heading' | 'hidden';
   required?: boolean;
   options?: string[];
   placeholder?: string;
   columns?: number;
+  /** Fixed value submitted with the form. Only used by `hidden` fields. */
+  value?: string;
 }
 
 interface FormDef {
@@ -128,6 +130,13 @@ function renderField(field: FormField): string {
         ${escapeMultiline(field.label)}
       </div>
     `;
+  }
+
+  // Hidden field: submits a fixed value without showing anything to the user.
+  // Used to stamp a known constant on every submission — e.g. a form that only
+  // 飲食店 fill in can carry industry_type=飲食業 without asking again.
+  if (field.type === 'hidden') {
+    return `<input type="hidden" name="${escapeHtml(field.name)}" value="${escapeHtml(field.value ?? '')}" />`;
   }
 
   // If this is an x_username field, render a fuzzy-search autocomplete input
@@ -720,7 +729,7 @@ function validateForm(): string | null {
   if (!formDef) return null;
 
   for (const field of formDef.fields) {
-    if (field.type === 'heading') continue;
+    if (field.type === 'heading' || field.type === 'hidden') continue;
     if (!field.required) continue;
 
     if (field.type === 'checkbox') {
@@ -1208,7 +1217,8 @@ function applyPrefill(): void {
   if (!root || !body) return; // form not rendered yet — try again later
 
   for (const field of formDef.fields) {
-    if (field.type === 'heading') continue;
+    // hidden carries a fixed value — stored metadata must not override it.
+    if (field.type === 'heading' || field.type === 'hidden') continue;
     const raw = (meta as Record<string, unknown>)[field.name];
     if (raw === undefined || raw === null || raw === '') continue;
 
