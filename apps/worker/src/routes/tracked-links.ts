@@ -262,9 +262,17 @@ trackedLinks.get('/t/:linkId', async (c) => {
 
   // If no user ID yet, check if this is LINE's in-app browser → redirect to LIFF for identification
   // Skip LIFF redirect for app-link domains (they'll come from Safari via externalBrowser)
+  //
+  // 転送先が LINE ドメイン (liff.line.me / line.me) の場合もスキップする。
+  // その場合は転送先自体が LIFF や友だち追加画面で本人を識別するため、
+  // 識別のための LIFF を手前に挟むと二重になり、利用者には「空の LIFF が
+  // 一枚開いてから目的の画面に飛ぶ」という無駄な画面として見える
+  // (リダイレクトも 2 往復増える)。click_count は下で加算されるので
+  // 計測も落ちない (この経路で失うのは click 行と friend の紐付けだけで、
+  // 友だち単位の流入元は転送先の LIFF が ref から記録する)。
   const ua = c.req.header('user-agent') || '';
   const isLineApp = /\bLine\b/i.test(ua);
-  if (!useAppRedirect && !lineUserId && !friendId && isLineApp && c.env.LIFF_URL) {
+  if (!useAppRedirect && !isLineDomain(link.original_url) && !lineUserId && !friendId && isLineApp && c.env.LIFF_URL) {
     const directUrl = `${c.env.WORKER_URL || new URL(c.req.url).origin}/t/${linkId}`;
     const liffRedirect = `${c.env.LIFF_URL}?redirect=${encodeURIComponent(directUrl)}`;
     return c.redirect(liffRedirect, 302);
