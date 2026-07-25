@@ -28,6 +28,7 @@ interface LauncherRow {
   headline: string | null;
   body: string | null;
   button_label: string | null;
+  og_image_url: string | null;
   view_count: number;
   is_active: number;
   created_at: string;
@@ -66,6 +67,7 @@ function serialize(row: LauncherRow, origin: string) {
     headline: row.headline,
     body: row.body,
     buttonLabel: row.button_label,
+    ogImageUrl: row.og_image_url,
     viewCount: row.view_count,
     isActive: Boolean(row.is_active),
     shareUrl: `${origin}/s/${row.slug}`,
@@ -77,11 +79,37 @@ function serialize(row: LauncherRow, origin: string) {
 const DEFAULT_HEADLINE = 'アンケートのご協力をお願いします';
 const DEFAULT_BUTTON = 'LINEで回答する';
 
-function renderPage(row: LauncherRow): string {
+function renderPage(row: LauncherRow, origin: string): string {
   const headline = escapeHtml(row.headline || DEFAULT_HEADLINE);
   const body = row.body ? escapeMultiline(row.body) : '';
   const label = escapeHtml(row.button_label || DEFAULT_BUTTON);
   const href = escapeHtml(row.target_url);
+
+  // SNS・LINEに貼られたときのプレビュー（OGP）。
+  // 画像が無いとリンクが素のテキストに見えて信頼されにくく、開封率に直接響く。
+  // og:description は本文の改行を詰めて1行にする（プレビューは改行を扱えない）。
+  const ogUrl = escapeHtml(`${origin}/s/${row.slug}`);
+  const ogDesc = escapeHtml(
+    (row.body || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 180),
+  );
+  const ogImage = row.og_image_url ? escapeHtml(row.og_image_url) : '';
+  const ogTags = [
+    '<meta property="og:type" content="website">',
+    `<meta property="og:title" content="${headline}">`,
+    ogDesc ? `<meta property="og:description" content="${ogDesc}">` : '',
+    `<meta property="og:url" content="${ogUrl}">`,
+    '<meta property="og:locale" content="ja_JP">',
+    ogImage ? `<meta property="og:image" content="${ogImage}">` : '',
+    ogImage ? '<meta property="og:image:width" content="1200">' : '',
+    ogImage ? '<meta property="og:image:height" content="630">' : '',
+    ogImage
+      ? '<meta name="twitter:card" content="summary_large_image">'
+      : '<meta name="twitter:card" content="summary">',
+    `<meta name="twitter:title" content="${headline}">`,
+    ogDesc ? `<meta name="twitter:description" content="${ogDesc}">` : '',
+    ogImage ? `<meta name="twitter:image" content="${ogImage}">` : '',
+    ogDesc ? `<meta name="description" content="${ogDesc}">` : '',
+  ].filter(Boolean).join('\n');
 
   return `<!DOCTYPE html>
 <html lang="ja"><head>
@@ -89,6 +117,7 @@ function renderPage(row: LauncherRow): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${headline}</title>
 <meta name="robots" content="noindex">
+${ogTags}
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -167,7 +196,7 @@ launchers.get('/s/:slug', async (c) => {
       }),
   );
 
-  return c.html(renderPage(row), 200, {
+  return c.html(renderPage(row, new URL(c.req.url).origin), 200, {
     'Cache-Control': 'no-store',
   });
 });
@@ -196,6 +225,7 @@ launchers.post('/api/launchers', async (c) => {
       headline?: string | null;
       body?: string | null;
       buttonLabel?: string | null;
+      ogImageUrl?: string | null;
     }>();
 
     if (!body.slug || !SLUG_PATTERN.test(body.slug)) {
@@ -206,6 +236,9 @@ launchers.post('/api/launchers', async (c) => {
     }
     if (!body.targetUrl || !isSafeTargetUrl(body.targetUrl)) {
       return c.json({ success: false, error: 'targetUrl must be an https URL' }, 400);
+    }
+    if (body.ogImageUrl && !isSafeTargetUrl(body.ogImageUrl)) {
+      return c.json({ success: false, error: 'ogImageUrl must be an https URL' }, 400);
     }
 
     const now = jstNow();
@@ -219,6 +252,7 @@ launchers.post('/api/launchers', async (c) => {
            headline = excluded.headline,
            body = excluded.body,
            button_label = excluded.button_label,
+           og_image_url = excluded.og_image_url,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -228,6 +262,7 @@ launchers.post('/api/launchers', async (c) => {
         body.headline ?? null,
         body.body ?? null,
         body.buttonLabel ?? null,
+        body.ogImageUrl ?? null,
         now,
         now,
       )
@@ -254,6 +289,7 @@ launchers.patch('/api/launchers/:slug', async (c) => {
       headline?: string | null;
       body?: string | null;
       buttonLabel?: string | null;
+      ogImageUrl?: string | null;
       isActive?: boolean;
     }>();
 
@@ -266,11 +302,14 @@ launchers.patch('/api/launchers/:slug', async (c) => {
     if (body.targetUrl !== undefined && !isSafeTargetUrl(body.targetUrl)) {
       return c.json({ success: false, error: 'targetUrl must be an https URL' }, 400);
     }
+    if (body.ogImageUrl && !isSafeTargetUrl(body.ogImageUrl)) {
+      return c.json({ success: false, error: 'ogImageUrl must be an https URL' }, 400);
+    }
 
     await c.env.DB
       .prepare(
         `UPDATE launchers
-           SET name = ?, target_url = ?, headline = ?, body = ?, button_label = ?, is_active = ?, updated_at = ?
+           SET name = ?, target_url = ?, headline = ?, body = ?, button_label = ?, og_image_url = ?, is_active = ?, updated_at = ?
          WHERE slug = ?`,
       )
       .bind(
@@ -279,6 +318,7 @@ launchers.patch('/api/launchers/:slug', async (c) => {
         body.headline === undefined ? existing.headline : body.headline,
         body.body === undefined ? existing.body : body.body,
         body.buttonLabel === undefined ? existing.button_label : body.buttonLabel,
+        body.ogImageUrl === undefined ? existing.og_image_url : body.ogImageUrl,
         body.isActive === undefined ? existing.is_active : body.isActive ? 1 : 0,
         jstNow(),
         slug,
