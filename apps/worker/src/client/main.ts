@@ -585,13 +585,17 @@ function showGateDecline(): void {
 }
 
 /**
- * 画面下部に診断情報を出す。
+ * 画面下部に診断情報を出す（`&debug=1` のときだけ）。
  *
  * ゲートは「押しても何も起きない」形で失敗すると原因が全く分からない
- * （実機のログが見えないため）。どこで止まったかを利用者の画面に出して、
- * 報告だけで切り分けられるようにする。運用が安定したら外してよい。
+ * （実機のログが手元で見えないため）。調査時に URL へ `&debug=1` を足せば
+ * どこで止まったかが画面に出る。配布URLには付けないので利用者には見えない。
  */
 function showGateDiag(info: string): void {
+  // 既定では出さない。技術的な文言は一般の利用者には不親切なうえ不安を与える。
+  // 失敗時の行き止まりはフォールバック表示（お立場カード）で回避しているので、
+  // 診断は調査時だけ `&debug=1` を付けて有効にする。
+  if (new URLSearchParams(window.location.search).get('debug') !== '1') return;
   const app = document.getElementById('app');
   if (!app) return;
   const el = document.createElement('p');
