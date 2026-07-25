@@ -10,6 +10,7 @@ export function registerManageTrackedLinks(server: McpServer): void {
       action: z.enum(["list", "update", "delete"]).describe("Action to perform"),
       linkId: z.string().optional().describe("Tracked link ID (required for update/delete)"),
       name: z.string().optional().describe("New link name (update only)"),
+      originalUrl: z.string().optional().describe("New destination URL (update only). Lets you fix a wrong destination without recreating the link, which would lose its click count and inflow records."),
       tagId: z.string().nullable().optional().describe("Tag ID to auto-apply on click, or null to clear (update only)"),
       scenarioId: z.string().nullable().optional().describe("Scenario ID to auto-enroll on click, or null to clear (update only)"),
       introTemplateId: z
@@ -29,7 +30,7 @@ export function registerManageTrackedLinks(server: McpServer): void {
         ),
       isActive: z.boolean().optional().describe("Whether the link is active (update only)"),
     },
-    async ({ action, linkId, name, tagId, scenarioId, introTemplateId, rewardTemplateId, isActive }) => {
+    async ({ action, linkId, name, originalUrl, tagId, scenarioId, introTemplateId, rewardTemplateId, isActive }) => {
       try {
         const client = getClient();
         if (action === "list") {
@@ -40,6 +41,7 @@ export function registerManageTrackedLinks(server: McpServer): void {
           if (!linkId) throw new Error("linkId is required for update");
           const link = await client.trackedLinks.update(linkId, {
             name,
+            originalUrl,
             tagId,
             scenarioId,
             introTemplateId,

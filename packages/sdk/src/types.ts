@@ -382,6 +382,8 @@ export interface CreateTrackedLinkInput {
 
 export interface UpdateTrackedLinkInput {
   name?: string
+  /** Destination URL. Editable so a wrong destination can be fixed without losing click/inflow history. */
+  originalUrl?: string
   tagId?: string | null
   scenarioId?: string | null
   introTemplateId?: string | null

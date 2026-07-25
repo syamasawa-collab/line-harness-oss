@@ -82,6 +82,12 @@ export async function createTrackedLink(
 
 export interface UpdateTrackedLinkInput {
   name?: string;
+  /**
+   * 転送先URL。誤登録の修正や、キャンペーン途中での差し替えに使う。
+   * 作成後に変更できないと、URLを直すたびに作り直しになり、それまでの
+   * クリック数と流入元の記録を失う（リンクは既に配布済みで差し替えられない）。
+   */
+  originalUrl?: string;
   tagId?: string | null;
   scenarioId?: string | null;
   introTemplateId?: string | null;
@@ -99,6 +105,7 @@ export async function updateTrackedLink(
 
   const now = jstNow();
   const name = input.name ?? existing.name;
+  const originalUrl = input.originalUrl ?? existing.original_url;
   const tagId = input.tagId === undefined ? existing.tag_id : input.tagId;
   const scenarioId = input.scenarioId === undefined ? existing.scenario_id : input.scenarioId;
   const introTemplateId =
@@ -110,10 +117,10 @@ export async function updateTrackedLink(
   await db
     .prepare(
       `UPDATE tracked_links
-         SET name = ?, tag_id = ?, scenario_id = ?, intro_template_id = ?, reward_template_id = ?, is_active = ?, updated_at = ?
+         SET name = ?, original_url = ?, tag_id = ?, scenario_id = ?, intro_template_id = ?, reward_template_id = ?, is_active = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .bind(name, tagId, scenarioId, introTemplateId, rewardTemplateId, isActive, now, id)
+    .bind(name, originalUrl, tagId, scenarioId, introTemplateId, rewardTemplateId, isActive, now, id)
     .run();
 
   return getTrackedLinkById(db, id);
