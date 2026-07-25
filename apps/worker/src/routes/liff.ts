@@ -275,9 +275,11 @@ async function applyRefAttribution(
           await completeFriendScenario(db, enrollmentRow.id);
         }
         // 到達タグ付与 (advance / complete の後)
+        // 自動経路なので side effects (tag_added シナリオ起動 / tag_change) を発火させる
         if (firstStep.on_reach_tag_id) {
           try {
-            await addTagToFriend(db, friend.id, firstStep.on_reach_tag_id);
+            const { attachTagAndFireSideEffects } = await import('../services/friend-tag-attach.js');
+            await attachTagAndFireSideEffects(db, friend.id, firstStep.on_reach_tag_id);
           } catch (err) {
             console.error(`[scenario] tag attach failed step=${firstStep.id}:`, err);
           }
@@ -871,7 +873,6 @@ liffRoutes.get('/auth/callback', async (c) => {
       const {
         computeNextDeliveryAt: computeNextLiff,
         resolveStepContent: resolveStepLiff,
-        addTagToFriend: addTagLiff,
       } = await import('@line-crm/db');
       const scenarios = runAccountScenariosLiff ? await getScenarios(db) : [];
       for (const scenario of scenarios) {
@@ -927,7 +928,8 @@ liffRoutes.get('/auth/callback', async (c) => {
                 // 到達タグ付与 (push 後)
                 if (firstStep.on_reach_tag_id) {
                   try {
-                    await addTagLiff(db, friend.id, firstStep.on_reach_tag_id);
+                    const { attachTagAndFireSideEffects } = await import('../services/friend-tag-attach.js');
+                    await attachTagAndFireSideEffects(db, friend.id, firstStep.on_reach_tag_id);
                   } catch (err) {
                     console.error(`[scenario] tag attach failed step=${firstStep.id}:`, err);
                   }

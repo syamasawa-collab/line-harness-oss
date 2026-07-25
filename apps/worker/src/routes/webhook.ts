@@ -8,6 +8,7 @@ import {
   getFriendByLineUserId,
   getScenarios,
   enrollFriendInScenario,
+  restartFriendScenario,
   getScenarioSteps,
   advanceFriendScenario,
   completeFriendScenario,
@@ -16,7 +17,6 @@ import {
   jstNow,
   computeNextDeliveryAt,
   resolveStepContent,
-  addTagToFriend,
   getEntryRouteByRefCode,
   getMessageTemplateById,
 } from '@line-crm/db';
@@ -136,6 +136,54 @@ webhook.post('/webhook', async (c) => {
   return c.json({ status: 'ok' }, 200);
 });
 
+/**
+ * 再フォロー時に、残っている friend_add の登録を先頭へ巻き戻す。
+ *
+ * `friend_scenarios` の partial UNIQUE により、一度追加した人が
+ * ブロック解除・削除のあと再追加しても enrollFriendInScenario は null を返す。
+ * その場合に何もしないと**再追加した人にあいさつが届かない**ので、
+ * 未完了の登録を巻き戻して配信し直す。
+ *
+ * LINE は webhook を再送することがあるため、直近60秒に同じシナリオの
+ * メッセージを送っていれば再送とみなして null を返す（二重送信の防止）。
+ * これまでは「登録済みなら弾く」ことが二重送信の歯止めになっていたので、
+ * 巻き戻しを許す代わりにこのガードが必要。
+ */
+async function restartFriendAddOnRefollow(
+  db: D1Database,
+  friendId: string,
+  scenarioId: string,
+  nextDeliveryAt: string | null,
+) {
+  const existing = await db
+    .prepare(
+      `SELECT id FROM friend_scenarios
+       WHERE friend_id = ? AND scenario_id = ? AND status != 'completed'
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+    .bind(friendId, scenarioId)
+    .first<{ id: string }>();
+  if (!existing) return null;
+
+  const cutoff = new Date(Date.now() - 60_000 + 9 * 60 * 60_000)
+    .toISOString()
+    .slice(0, -1) + '+09:00';
+  const recent = await db
+    .prepare(
+      `SELECT 1 FROM messages_log ml
+       JOIN scenario_steps ss ON ss.id = ml.scenario_step_id
+       WHERE ml.friend_id = ? AND ss.scenario_id = ?
+         AND ml.direction = 'outgoing' AND ml.created_at > ?
+       LIMIT 1`,
+    )
+    .bind(friendId, scenarioId, cutoff)
+    .first();
+  if (recent) return null;
+
+  console.log(`[follow] re-follow detected — restarting scenario ${scenarioId} for friend ${friendId}`);
+  return await restartFriendScenario(db, existing.id, nextDeliveryAt);
+}
+
 async function handleEvent(
   db: D1Database,
   lineClient: LineClient,
@@ -212,26 +260,41 @@ async function handleEvent(
       const scenarioAccountMatch = !scenario.line_account_id || !lineAccountId || scenario.line_account_id === lineAccountId;
       if (scenario.trigger_type === 'friend_add' && scenario.is_active && scenarioAccountMatch) {
         try {
-          // INSERT OR IGNORE handles dedup via UNIQUE(friend_id, scenario_id)
-          const friendScenario = await enrollFriendInScenario(db, friend.id, scenario.id);
-          if (!friendScenario) continue; // already enrolled
+          // Immediate delivery: scenario.delivery_mode を踏まえて step1 が「now 以前」に
+          // スケジュールされる場合のみ replyMessage で即時送信する。
+          // - relative + delay_minutes=0 → 即時
+          // - elapsed + offset_days=0 + offset_minutes=0 → 即時
+          // - absolute_time で過去時刻 → computeNextDeliveryAt が now に clamp するので即時
+          const steps = await getScenarioSteps(db, scenario.id);
+          const firstStep = steps[0];
+          const deliveryMode = scenario.delivery_mode ?? 'relative';
+          const enrolledAtJst = new Date(Date.now() + 9 * 60 * 60_000);
+          const firstScheduledAt = firstStep
+            ? computeNextDeliveryAt(
+                { delivery_mode: deliveryMode },
+                firstStep,
+                { enrolledAt: enrolledAtJst, previousDeliveredAt: enrolledAtJst, now: enrolledAtJst },
+              )
+            : null;
 
-            // Immediate delivery: scenario.delivery_mode を踏まえて step1 が「now 以前」に
-            // スケジュールされる場合のみ replyMessage で即時送信する。
-            // - relative + delay_minutes=0 → 即時
-            // - elapsed + offset_days=0 + offset_minutes=0 → 即時
-            // - absolute_time で過去時刻 → computeNextDeliveryAt が now に clamp するので即時
-            const steps = await getScenarioSteps(db, scenario.id);
-            const firstStep = steps[0];
-            const deliveryMode = scenario.delivery_mode ?? 'relative';
-            const enrolledAtJst = new Date(Date.now() + 9 * 60 * 60_000);
-            const firstScheduledAt = firstStep
-              ? computeNextDeliveryAt(
-                  { delivery_mode: deliveryMode },
-                  firstStep,
-                  { enrolledAt: enrolledAtJst, previousDeliveredAt: enrolledAtJst, now: enrolledAtJst },
-                )
-              : null;
+          // INSERT OR IGNORE handles dedup via the partial UNIQUE
+          // (friend_id, scenario_id) WHERE status != 'completed'
+          let friendScenario = await enrollFriendInScenario(db, friend.id, scenario.id);
+
+          if (!friendScenario) {
+            // 登録済み扱いで弾かれた = ブロック解除・削除後の「再フォロー」。
+            // ここで何もしないと**再追加した人にあいさつが一切届かない**
+            // （未完了の登録が残っている限り INSERT が通らないため）。
+            // あいさつは追加のたびに出すのが正しい挙動なので、残っている
+            // 登録を先頭に巻き戻して配信し直す。
+            friendScenario = await restartFriendAddOnRefollow(
+              db,
+              friend.id,
+              scenario.id,
+              firstScheduledAt ? firstScheduledAt.toISOString().slice(0, -1) + '+09:00' : null,
+            );
+            if (!friendScenario) continue; // 再送とみなした / 対象行なし
+          }
             const shouldSendImmediately =
               firstStep &&
               firstScheduledAt !== null &&
@@ -276,9 +339,11 @@ async function handleEvent(
                 }
 
                 // 到達タグ付与 (advance / complete の後)
+                // 自動経路なので side effects (tag_added シナリオ起動 / tag_change) を発火させる
                 if (firstStep.on_reach_tag_id) {
                   try {
-                    await addTagToFriend(db, friend.id, firstStep.on_reach_tag_id);
+                    const { attachTagAndFireSideEffects } = await import('../services/friend-tag-attach.js');
+                    await attachTagAndFireSideEffects(db, friend.id, firstStep.on_reach_tag_id);
                   } catch (err) {
                     console.error(`[scenario] tag attach failed step=${firstStep.id}:`, err);
                   }

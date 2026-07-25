@@ -439,6 +439,39 @@ export async function enrollFriendInScenario(
     .first<FriendScenario>())!;
 }
 
+/**
+ * 既存の登録を先頭から配信し直せる状態に戻す。
+ *
+ * 用途は「再フォロー時の友だち追加あいさつ」。`friend_scenarios` には
+ * partial UNIQUE (friend_id, scenario_id) WHERE status != 'completed' があるため、
+ * 一度追加した人が再追加しても enrollFriendInScenario は null を返す
+ * （＝登録済み扱い）。あいさつは追加のたびに出すのが正しいので、
+ * 呼び出し側はこれで登録を巻き戻してから配信する。
+ *
+ * current_step_order は enrollFriendInScenario と同じ -1 に戻す（0 だと
+ * step_order=0 の先頭ステップが配信されずに完了してしまう）。
+ */
+export async function restartFriendScenario(
+  db: D1Database,
+  friendScenarioId: string,
+  nextDeliveryAt: string | null,
+): Promise<FriendScenario | null> {
+  const now = jstNow();
+  await db
+    .prepare(
+      `UPDATE friend_scenarios
+       SET current_step_order = -1, status = 'active', started_at = ?, next_delivery_at = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(now, nextDeliveryAt, now, friendScenarioId)
+    .run();
+
+  return await db
+    .prepare(`SELECT * FROM friend_scenarios WHERE id = ?`)
+    .bind(friendScenarioId)
+    .first<FriendScenario>();
+}
+
 export async function getFriendScenariosDueForDelivery(
   db: D1Database,
   now: string,
