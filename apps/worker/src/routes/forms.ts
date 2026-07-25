@@ -13,6 +13,7 @@ import {
 import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
 import { enrollFriendInScenario } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
+import { pickMetadataToSave, parseMetadataFields } from '../services/form-metadata.js';
 import type {
   Form as DbForm,
   FormSubmission as DbFormSubmission,
@@ -40,6 +41,7 @@ function serializeForm(
     onSubmitWebhookHeaders: row.on_submit_webhook_headers,
     onSubmitWebhookFailMessage: row.on_submit_webhook_fail_message,
     saveToMetadata: Boolean(row.save_to_metadata),
+    metadataFields: parseMetadataFields(row.metadata_fields),
     isActive: Boolean(row.is_active),
     submitCount: row.submit_count,
     createdAt: row.created_at,
@@ -110,6 +112,7 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookHeaders?: string | null;
       onSubmitWebhookFailMessage?: string | null;
       saveToMetadata?: boolean;
+      metadataFields?: string[] | null;
     }>();
 
     if (!body.name) {
@@ -129,6 +132,7 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookHeaders: body.onSubmitWebhookHeaders ?? null,
       onSubmitWebhookFailMessage: body.onSubmitWebhookFailMessage ?? null,
       saveToMetadata: body.saveToMetadata,
+      metadataFields: body.metadataFields ?? null,
     });
 
     return c.json({ success: true, data: serializeForm(form) }, 201);
@@ -155,6 +159,7 @@ forms.put('/api/forms/:id', async (c) => {
       onSubmitWebhookHeaders?: string | null;
       onSubmitWebhookFailMessage?: string | null;
       saveToMetadata?: boolean;
+      metadataFields?: string[] | null;
       isActive?: boolean;
     }>();
 
@@ -172,6 +177,7 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.onSubmitWebhookHeaders !== undefined) updates.onSubmitWebhookHeaders = body.onSubmitWebhookHeaders;
     if (body.onSubmitWebhookFailMessage !== undefined) updates.onSubmitWebhookFailMessage = body.onSubmitWebhookFailMessage;
     if (body.saveToMetadata !== undefined) updates.saveToMetadata = body.saveToMetadata;
+    if (body.metadataFields !== undefined) updates.metadataFields = body.metadataFields;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
 
     const updated = await updateForm(c.env.DB, id, updates as any);
@@ -269,14 +275,26 @@ forms.post('/api/forms/:id/partial', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
+    // saveToMetadata が false のフォームは、回答を友だちの metadata に書かない。
+    // 送信時（/submit）と同じ扱いにする。ここを無条件に書いていたため、
+    // 「アンケート回答が友だち詳細に出る」状態がフラグを切っても残っていた。
+    const form = await getFormById(c.env.DB, formId);
+    if (!form) {
+      return c.json({ success: false, error: 'Form not found' }, 404);
+    }
+    const toSave = pickMetadataToSave(form, body.data ?? {});
+    if (!toSave) {
+      return c.json({ success: true, data: { savedToMetadata: false } });
+    }
+
     // Save survey data to friend metadata (merge with existing)
     const existingMeta = friend.metadata ? JSON.parse(friend.metadata) : {};
-    const merged = { ...existingMeta, ...body.data };
+    const merged = { ...existingMeta, ...toSave };
     await c.env.DB.prepare(
       'UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?',
     ).bind(JSON.stringify(merged), jstNow(), friend.id).run();
 
-    return c.json({ success: true });
+    return c.json({ success: true, data: { savedToMetadata: true, savedKeys: Object.keys(toSave) } });
   } catch (err) {
     console.error('POST /api/forms/:id/partial error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -423,13 +441,14 @@ forms.post('/api/forms/:id/submit', async (c) => {
       const sideEffects: Promise<unknown>[] = [];
 
       // Save response data to friend's metadata
-      if (form.save_to_metadata) {
+      const metadataToSave = pickMetadataToSave(form, submissionData);
+      if (metadataToSave) {
         sideEffects.push(
           (async () => {
             const friend = await getFriendById(db, friendId!);
             if (!friend) return;
             const existing = JSON.parse(friend.metadata || '{}') as Record<string, unknown>;
-            const merged = { ...existing, ...submissionData };
+            const merged = { ...existing, ...metadataToSave };
             await db
               .prepare(`UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?`)
               .bind(JSON.stringify(merged), now, friendId)
