@@ -407,6 +407,8 @@ export interface Form {
   description: string | null
   fields: FormField[]
   onSubmitTagId: string | null
+  /** Tag removed on submit — for mutually exclusive attributes (tags are otherwise only ever added). */
+  onSubmitRemoveTagId: string | null
   onSubmitScenarioId: string | null
   onSubmitMessageType: 'text' | 'flex' | null
   onSubmitMessageContent: string | null
@@ -422,6 +424,7 @@ export interface CreateFormInput {
   description?: string
   fields: FormField[]
   onSubmitTagId?: string | null
+  onSubmitRemoveTagId?: string | null
   onSubmitScenarioId?: string | null
   onSubmitMessageType?: 'text' | 'flex' | null
   onSubmitMessageContent?: string | null
@@ -433,6 +436,7 @@ export interface UpdateFormInput {
   description?: string | null
   fields?: FormField[]
   onSubmitTagId?: string | null
+  onSubmitRemoveTagId?: string | null
   onSubmitScenarioId?: string | null
   onSubmitMessageType?: 'text' | 'flex' | null
   onSubmitMessageContent?: string | null

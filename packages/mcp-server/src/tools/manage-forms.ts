@@ -13,13 +13,14 @@ export function registerManageForms(server: McpServer): void {
       description: z.string().nullable().optional().describe("Form description (for update)"),
       fields: z.string().optional().describe("JSON string of form fields array (for update). Field type can be 'text'|'email'|'tel'|'number'|'textarea'|'select'|'radio'|'checkbox'|'date'|'heading'. 'heading' is a display-only section header (no input). All labels support manual line breaks with \\n."),
       onSubmitTagId: z.string().nullable().optional().describe("Tag to add on submit (for update)"),
+      onSubmitRemoveTagId: z.string().nullable().optional().describe("Tag ID to REMOVE when the form is submitted (null to clear). Use for mutually exclusive attributes: tags are only ever added, so someone who submits both of a pair of forms (e.g. restaurant / non-restaurant role registration) ends up holding both tags, which skews later branching, segmented broadcasts and reporting. Set each form to remove its counterpart so only the latest choice remains. (for update)"),
       onSubmitScenarioId: z.string().nullable().optional().describe("Scenario to enroll on submit (for update)"),
       onSubmitMessageType: z.enum(["text", "flex"]).nullable().optional().describe("Custom message type to send after form submission (for update). Supports template variables: {{name}}, {{auth_url:CHANNEL_ID}}"),
       onSubmitMessageContent: z.string().nullable().optional().describe("Custom message content to send after form submission (for update). If set, replaces the default confirmation Flex."),
       saveToMetadata: z.boolean().optional().describe("Save responses to friend metadata (for update)"),
       isActive: z.boolean().optional().describe("Active status (for update)"),
     },
-    async ({ action, formId, name, description, fields, onSubmitTagId, onSubmitScenarioId, onSubmitMessageType, onSubmitMessageContent, saveToMetadata, isActive }) => {
+    async ({ action, formId, name, description, fields, onSubmitTagId, onSubmitRemoveTagId, onSubmitScenarioId, onSubmitMessageType, onSubmitMessageContent, saveToMetadata, isActive }) => {
       try {
         const client = getClient();
         if (action === "list") {
@@ -37,6 +38,7 @@ export function registerManageForms(server: McpServer): void {
           if (description !== undefined) input.description = description;
           if (fields !== undefined) input.fields = JSON.parse(fields);
           if (onSubmitTagId !== undefined) input.onSubmitTagId = onSubmitTagId;
+          if (onSubmitRemoveTagId !== undefined) input.onSubmitRemoveTagId = onSubmitRemoveTagId;
           if (onSubmitScenarioId !== undefined) input.onSubmitScenarioId = onSubmitScenarioId;
           if (onSubmitMessageType !== undefined) input.onSubmitMessageType = onSubmitMessageType;
           if (onSubmitMessageContent !== undefined) input.onSubmitMessageContent = onSubmitMessageContent;
