@@ -1,0 +1,11 @@
+-- フォーム: 回答内容に応じてタグを付け替えるルール
+--
+-- on_submit_tag_id は「送信したら必ずこのタグを足す」しかできず、回答が変わっても
+-- 以前のタグが残ってしまう（例: 属性を非飲食→飲食に直しても「非飲食」タグが残る）。
+-- tag_rules は「この項目がこの値なら、このタグを付けて・このタグを外す」を JSON 配列で
+-- 保持し、送信のたびに評価する。
+--
+-- 形式:
+--   [{ "field": "industry_type", "equals": "飲食業",
+--      "addTagIds": ["<tag id>"], "removeTagIds": ["<tag id>"] }, ...]
+ALTER TABLE forms ADD COLUMN tag_rules TEXT;

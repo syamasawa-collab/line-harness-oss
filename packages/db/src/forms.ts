@@ -22,6 +22,12 @@ export interface Form {
   on_submit_webhook_url: string | null;
   on_submit_webhook_headers: string | null;
   on_submit_webhook_fail_message: string | null;
+  /**
+   * JSON string of TagRule[] — 回答内容に応じてタグを付け替える規則。
+   * on_submit_tag_id と違い「外す」も表現できるため、回答をやり直したときに
+   * 以前の回答由来のタグが残らない。
+   */
+  tag_rules: string | null;
   save_to_metadata: number;
   /**
    * metadata に保存する項目名のJSON配列。NULL なら全項目（従来の挙動）。
@@ -129,6 +135,8 @@ export interface CreateFormInput {
   onSubmitWebhookUrl?: string | null;
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
+  /** JSON string of TagRule[] */
+  tagRules?: string | null;
   saveToMetadata?: boolean;
   metadataFields?: string[] | null;
 }
@@ -143,8 +151,8 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
          (id, name, description, fields, on_submit_tag_id, on_submit_remove_tag_id, on_submit_scenario_id,
           on_submit_message_type, on_submit_message_content,
           on_submit_webhook_url, on_submit_webhook_headers, on_submit_webhook_fail_message,
-          save_to_metadata, metadata_fields, is_active, submit_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+          tag_rules, save_to_metadata, metadata_fields, is_active, submit_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     )
     .bind(
       id,
@@ -159,6 +167,7 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
       input.onSubmitWebhookUrl ?? null,
       input.onSubmitWebhookHeaders ?? null,
       input.onSubmitWebhookFailMessage ?? null,
+      input.tagRules ?? null,
       input.saveToMetadata !== false ? 1 : 0,
       input.metadataFields ? JSON.stringify(input.metadataFields) : null,
       now,
@@ -181,6 +190,8 @@ export interface UpdateFormInput {
   onSubmitWebhookUrl?: string | null;
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
+  /** JSON string of TagRule[] */
+  tagRules?: string | null;
   saveToMetadata?: boolean;
   metadataFields?: string[] | null;
   isActive?: boolean;
@@ -210,6 +221,7 @@ export async function updateForm(
            on_submit_webhook_url = ?,
            on_submit_webhook_headers = ?,
            on_submit_webhook_fail_message = ?,
+           tag_rules = ?,
            save_to_metadata = ?,
            metadata_fields = ?,
            is_active = ?,
@@ -242,6 +254,7 @@ export async function updateForm(
       'onSubmitWebhookFailMessage' in input
         ? (input.onSubmitWebhookFailMessage ?? null)
         : existing.on_submit_webhook_fail_message,
+      'tagRules' in input ? (input.tagRules ?? null) : existing.tag_rules,
       'saveToMetadata' in input
         ? (input.saveToMetadata !== false ? 1 : 0)
         : existing.save_to_metadata,

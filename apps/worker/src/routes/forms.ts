@@ -11,9 +11,10 @@ import {
   jstNow,
 } from '@line-crm/db';
 import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
-import { enrollFriendInScenario } from '@line-crm/db';
+import { addTagToFriend, removeTagFromFriend, enrollFriendInScenario } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { pickMetadataToSave, parseMetadataFields } from '../services/form-metadata.js';
+import { parseTagRules, resolveTagRules } from '../services/form-tag-rules.js';
 import type {
   Form as DbForm,
   FormSubmission as DbFormSubmission,
@@ -40,6 +41,7 @@ function serializeForm(
     onSubmitWebhookUrl: row.on_submit_webhook_url,
     onSubmitWebhookHeaders: row.on_submit_webhook_headers,
     onSubmitWebhookFailMessage: row.on_submit_webhook_fail_message,
+    tagRules: parseTagRules(row.tag_rules),
     saveToMetadata: Boolean(row.save_to_metadata),
     metadataFields: parseMetadataFields(row.metadata_fields),
     isActive: Boolean(row.is_active),
@@ -111,6 +113,7 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookUrl?: string | null;
       onSubmitWebhookHeaders?: string | null;
       onSubmitWebhookFailMessage?: string | null;
+      tagRules?: unknown[] | null;
       saveToMetadata?: boolean;
       metadataFields?: string[] | null;
     }>();
@@ -131,6 +134,7 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookUrl: body.onSubmitWebhookUrl ?? null,
       onSubmitWebhookHeaders: body.onSubmitWebhookHeaders ?? null,
       onSubmitWebhookFailMessage: body.onSubmitWebhookFailMessage ?? null,
+      tagRules: body.tagRules ? JSON.stringify(body.tagRules) : null,
       saveToMetadata: body.saveToMetadata,
       metadataFields: body.metadataFields ?? null,
     });
@@ -158,6 +162,7 @@ forms.put('/api/forms/:id', async (c) => {
       onSubmitWebhookUrl?: string | null;
       onSubmitWebhookHeaders?: string | null;
       onSubmitWebhookFailMessage?: string | null;
+      tagRules?: unknown[] | null;
       saveToMetadata?: boolean;
       metadataFields?: string[] | null;
       isActive?: boolean;
@@ -176,6 +181,9 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.onSubmitWebhookUrl !== undefined) updates.onSubmitWebhookUrl = body.onSubmitWebhookUrl;
     if (body.onSubmitWebhookHeaders !== undefined) updates.onSubmitWebhookHeaders = body.onSubmitWebhookHeaders;
     if (body.onSubmitWebhookFailMessage !== undefined) updates.onSubmitWebhookFailMessage = body.onSubmitWebhookFailMessage;
+    if (body.tagRules !== undefined) {
+      updates.tagRules = body.tagRules ? JSON.stringify(body.tagRules) : null;
+    }
     if (body.saveToMetadata !== undefined) updates.saveToMetadata = body.saveToMetadata;
     if (body.metadataFields !== undefined) updates.metadataFields = body.metadataFields;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
@@ -487,6 +495,22 @@ forms.post('/api/forms/:id/submit', async (c) => {
             });
           })(),
         );
+      }
+
+      // Sync tags to the answers. Unlike on_submit_tag_id these rules can also
+      // REMOVE tags, so re-submitting with a changed answer (e.g. 属性 を
+      // 非飲食業 → 飲食業 に直す) doesn't leave the previous answer's tag behind.
+      {
+        const rules = parseTagRules(form.tag_rules);
+        if (rules.length > 0) {
+          const { addTagIds, removeTagIds } = resolveTagRules(rules, submissionData);
+          for (const tagId of addTagIds) {
+            sideEffects.push(addTagToFriend(db, friendId, tagId));
+          }
+          for (const tagId of removeTagIds) {
+            sideEffects.push(removeTagFromFriend(db, friendId, tagId));
+          }
+        }
       }
 
       // Enroll in scenario
