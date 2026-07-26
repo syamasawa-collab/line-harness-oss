@@ -150,18 +150,19 @@ function renderPage(row: LauncherRow, origin: string): string {
 <meta name="robots" content="noindex">
 ${ogTags}
 <style>
-  :root { color-scheme: light dark; }
+  /* 白背景に固定する。端末のダークモードで配色が反転すると、ロゴ（濃色の文字を
+     含む）が沈み、発行元が読み取れなくなるため。 */
+  :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 24px 20px 40px;
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
-    background: #f7f8fa; color: #1f2328; line-height: 1.75;
+    background: #fff; color: #1f2328; line-height: 1.75;
     display: flex; justify-content: center;
   }
   .wrap { width: 100%; max-width: 460px; }
   .card {
     background: #fff; border-radius: 14px; padding: 24px 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
   }
   .brand { text-align: center; margin: 0 0 18px; }
   .brand img {
@@ -178,14 +179,6 @@ ${ogTags}
   .note {
     margin-top: 20px; padding-top: 16px; border-top: 1px solid #e9ecef;
     font-size: 12px; color: #8a9099;
-  }
-  @media (prefers-color-scheme: dark) {
-    body { background: #14161a; color: #e6e8eb; }
-    .card { background: #1c1f24; box-shadow: none; }
-    /* ロゴは濃色の文字を含むため、暗い背景では読めなくなる。白地を敷く */
-    .brand { background: #fff; border-radius: 10px; padding: 12px 0; }
-    p { color: #c3c8cf; }
-    .note { border-top-color: #2b3038; }
   }
 </style>
 </head><body>
