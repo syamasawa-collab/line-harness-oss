@@ -25,6 +25,18 @@ import type { Env } from '../index.js';
 
 const liffRoutes = new Hono<Env>();
 
+/**
+ * ゲートの二重送信ガードの窓（ミリ秒）。
+ *
+ * 防ぎたいのは「友だち追加直後のあいさつと同じ案内が重なること」と
+ * 「同じURLを続けてタップされて案内が連投されること」の2つだけです。
+ * あいさつは follow の webhook 内で**即時配信**される（cron待ちではない）ため、
+ * 追加からゲート到達までの数秒を覆えば足ります。
+ *
+ * 長くしても防げる範囲は変わらず、動作確認のたびに待たされるだけなので短くします。
+ */
+export const GATE_DEDUP_WINDOW_MS = 45_000;
+
 // Persist ig_igsid on the LINE friend and notify IG Harness.
 // Used anywhere a LIFF/OAuth flow resolves with a known IGSID so existing
 // friends (who bypass /auth/callback) also get the cross-link written.
@@ -1247,7 +1259,7 @@ liffRoutes.post('/api/liff/gate', async (c) => {
           //  (2) 同じURLを続けてタップされても案内を連投しない
           // 一斉配信や手動送信（broadcast / manual）はガードの対象にしない
           // ——直前に別件の配信があっただけで案内が出ないのを避けるため。
-          const cutoff = new Date(Date.now() - 3 * 60_000 + 9 * 60 * 60_000)
+          const cutoff = new Date(Date.now() - GATE_DEDUP_WINDOW_MS + 9 * 60 * 60_000)
             .toISOString()
             .slice(0, -1) + '+09:00';
           const recent = await db
