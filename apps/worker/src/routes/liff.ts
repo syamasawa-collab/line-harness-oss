@@ -6,7 +6,6 @@ import {
   linkFriendToUser,
   upsertFriend,
   getEntryRouteByRefCode,
-  setFriendLastRef,
   recordRefTracking,
   addTagToFriend,
   getLineAccountByChannelId,
@@ -785,8 +784,6 @@ liffRoutes.get('/auth/callback', async (c) => {
         .prepare(`UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL`)
         .bind(ref, friend.id)
         .run();
-      // ラストタッチは毎回上書きする（今回どの配布先URLから来たかの判定に使う）
-      await setFriendLastRef(db, friend.id, ref);
 
       // Look up entry route config
       const route = await getEntryRouteByRefCode(db, ref);
@@ -1430,9 +1427,6 @@ liffRoutes.post('/api/liff/link', async (c) => {
       if (body.ref && !body.ref.startsWith('xh:')) {
         await db.prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
           .bind(body.ref, friend.id).run();
-        // ラストタッチは毎回上書きする。既存フォロワーが配布先URLを踏んだ場合、
-        // ファーストタッチは昔の入口のままなので、これが無いと配布先別に数えられない。
-        await setFriendLastRef(db, friend.id, body.ref);
       }
       // Apply ref attribution (tag + scenario push) for already-linked friends.
       // /auth/callback only fires for new OAuth flows, so existing friends
@@ -1505,8 +1499,6 @@ liffRoutes.post('/api/liff/link', async (c) => {
     if (body.ref && !body.ref.startsWith('xh:')) {
       await db.prepare('UPDATE friends SET ref_code = ? WHERE id = ? AND ref_code IS NULL')
         .bind(body.ref, friend.id).run();
-      // ラストタッチは毎回上書きする（今回どの配布先URLから来たかの判定に使う）
-      await setFriendLastRef(db, friend.id, body.ref);
 
       // Record ref tracking
       try {

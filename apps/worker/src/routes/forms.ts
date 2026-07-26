@@ -376,8 +376,14 @@ forms.post('/api/forms/:id/submit', async (c) => {
       let refInfo: WebhookRefInfo | null = null;
       if (friendId) {
         try {
-          const friend = await getFriendById(c.env.DB, friendId);
-          const ref = resolveRefForSubmission(friend);
+          const [friend, lastRef] = await Promise.all([
+            getFriendById(c.env.DB, friendId),
+            (async () => {
+              const { getLatestRefCodeByFriend } = await import('@line-crm/db');
+              return getLatestRefCodeByFriend(c.env.DB, friendId!);
+            })(),
+          ]);
+          const ref = resolveRefForSubmission(lastRef, friend?.ref_code);
           // UUID のままでは読めないので、配布先の表示名も引く
           let refName: string | null = null;
           if (ref) {
