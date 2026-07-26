@@ -14,7 +14,11 @@ import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
 import { addTagToFriend, removeTagFromFriend, enrollFriendInScenario } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { pickMetadataToSave, parseMetadataFields } from '../services/form-metadata.js';
-import { buildWebhookBody } from '../services/form-webhook-body.js';
+import {
+  buildWebhookBody,
+  resolveRefForSubmission,
+  type WebhookRefInfo,
+} from '../services/form-webhook-body.js';
 import { parseTagRules, resolveTagRules } from '../services/form-tag-rules.js';
 import type {
   Form as DbForm,
@@ -367,18 +371,26 @@ forms.post('/api/forms/:id/submit', async (c) => {
     delete submissionData._skipWebhook;
     let webhookData: Record<string, unknown> | null = null;
     if (form.on_submit_webhook_url && !skipWebhook) {
-      // 流入元を1つだけ添える。取得に失敗しても送信は止めない
+      // 流入元を添える。取得に失敗しても送信は止めない
       // （集計用の付加情報のために回答を落とすのは本末転倒なため）。
-      let refCode: string | null = null;
+      let refInfo: WebhookRefInfo | null = null;
       if (friendId) {
         try {
           const friend = await getFriendById(c.env.DB, friendId);
-          refCode = friend?.ref_code ?? null;
+          const ref = resolveRefForSubmission(friend);
+          // UUID のままでは読めないので、配布先の表示名も引く
+          let refName: string | null = null;
+          if (ref) {
+            const { getTrackedLinkById } = await import('@line-crm/db');
+            const link = await getTrackedLinkById(c.env.DB, ref);
+            refName = link?.name ?? null;
+          }
+          refInfo = { ref, refName };
         } catch (err) {
-          console.error('ref_code lookup failed (continuing):', err);
+          console.error('ref lookup failed (continuing):', err);
         }
       }
-      const webhookResult = await callFormWebhook(form, submissionData, refCode);
+      const webhookResult = await callFormWebhook(form, submissionData, refInfo);
       webhookData = webhookResult.data as Record<string, unknown> | null;
       if (!webhookResult.passed) {
         // Webhook rejected — send fail message and stop
@@ -706,7 +718,7 @@ async function callFormWebhook(
   form: DbForm,
   submissionData: Record<string, unknown>,
   /** 流入元。集計用に本文へ足すだけで、回答の値も構造も変えない */
-  refCode?: string | null,
+  refInfo?: WebhookRefInfo | null,
 ): Promise<{ passed: boolean; data: unknown }> {
   if (!form.on_submit_webhook_url) return { passed: true, data: null };
 
@@ -734,7 +746,7 @@ async function callFormWebhook(
       method: isGet ? 'GET' : 'POST',
       headers,
       signal: controller.signal,
-      ...(isGet ? {} : { body: JSON.stringify(buildWebhookBody(submissionData, refCode)) }),
+      ...(isGet ? {} : { body: JSON.stringify(buildWebhookBody(submissionData, refInfo)) }),
     });
     clearTimeout(timeout);
 

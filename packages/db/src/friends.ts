@@ -14,6 +14,13 @@ export interface Friend {
    * （003_entry_routes.sql で追加。以降は上書きしない＝ファーストタッチ）。
    */
   ref_code: string | null;
+  /**
+   * 直近に踏んだ入口（ラストタッチ）。ref_code と違い**毎回上書きする**。
+   * 「この人が今回どの配布先URLから来たか」を知るための項目
+   * （ファーストタッチでは既存フォロワーの流入元が昔の値のままになる）。
+   */
+  last_ref_code: string | null;
+  last_ref_at: string | null;
   first_tracked_link_id: string | null;
   created_at: string;
   updated_at: string;
@@ -136,6 +143,30 @@ export async function setFriendFirstTrackedLinkIfNull(
        WHERE id = ? AND first_tracked_link_id IS NULL`,
     )
     .bind(trackedLinkId, now, friendId)
+    .run();
+}
+
+/**
+ * 直近に踏んだ入口（ラストタッチ）を記録する。**毎回上書きする。**
+ *
+ * `ref_code`（ファーストタッチ）とは役割が違う。獲得元を知りたいときは
+ * `ref_code`、「この人が今回どの配布先URLから来たか」を知りたいときは
+ * こちらを見る。アンケートの配布先別集計は後者でないと数えられない
+ * （既存フォロワーはファーストタッチが昔の入口のままになるため）。
+ */
+export async function setFriendLastRef(
+  db: D1Database,
+  friendId: string,
+  refCode: string,
+): Promise<void> {
+  const now = jstNow();
+  await db
+    .prepare(
+      `UPDATE friends
+       SET last_ref_code = ?, last_ref_at = ?
+       WHERE id = ?`,
+    )
+    .bind(refCode, now, friendId)
     .run();
 }
 
