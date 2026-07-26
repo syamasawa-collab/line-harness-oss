@@ -6,10 +6,10 @@
  *
  * ## どの ref を載せるか
  *
- * 友だちは2種類の ref を持ちます。
+ * 流入元は2つの見方があります。
  *
- * - `ref_code`      … ファーストタッチ（最初に踏んだ入口）。上書きしない
- * - `last_ref_code` … ラストタッチ（直近に踏んだ入口）。毎回上書きする
+ * - ファーストタッチ … `friends.ref_code`。最初に踏んだ入口。上書きしない
+ * - ラストタッチ     … `ref_tracking` の最新行。直近に踏んだ入口
  *
  * ここで欲しいのは「この回答者が**今回**どの配布先URLから来たか」なので
  * **ラストタッチを優先**します。ファーストタッチだと、既存フォロワーが配布先URLを
@@ -45,12 +45,11 @@ export function buildWebhookBody(
 
 /**
  * 今回の流入元を決める。ラストタッチが無ければファーストタッチで代用する
- * （ラストタッチの記録開始より前に来た人のため）。
+ * （ref を1度も踏まずに友だちになった人などのため）。
  */
-export function resolveRefForSubmission(friend: {
-  ref_code?: string | null;
-  last_ref_code?: string | null;
-} | null | undefined): string | null {
-  if (!friend) return null;
-  return friend.last_ref_code ?? friend.ref_code ?? null;
+export function resolveRefForSubmission(
+  lastRefCode: string | null | undefined,
+  firstRefCode: string | null | undefined,
+): string | null {
+  return lastRefCode ?? firstRefCode ?? null;
 }

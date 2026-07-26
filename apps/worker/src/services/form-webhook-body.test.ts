@@ -10,21 +10,18 @@ const ANSWERS = { likert_a: '5', respondent_name: '山澤修平', store_count: '
 
 describe('resolveRefForSubmission', () => {
   it('ラストタッチを使う（今回どの配布先URLから来たか）', () => {
-    expect(
-      resolveRefForSubmission({ ref_code: 'first-touch', last_ref_code: 'this-click' }),
-    ).toBe('this-click');
+    expect(resolveRefForSubmission('this-click', 'first-touch')).toBe('this-click');
   });
 
   it('ラストタッチが無ければファーストタッチで代用する', () => {
-    // ラストタッチの記録を始める前に来た人のため
-    expect(resolveRefForSubmission({ ref_code: 'first-touch', last_ref_code: null })).toBe(
-      'first-touch',
-    );
+    // ref を1度も踏まずに友だちになった人のため
+    expect(resolveRefForSubmission(null, 'first-touch')).toBe('first-touch');
+    expect(resolveRefForSubmission(undefined, 'first-touch')).toBe('first-touch');
   });
 
   it('どちらも無ければ null', () => {
-    expect(resolveRefForSubmission({ ref_code: null, last_ref_code: null })).toBeNull();
-    expect(resolveRefForSubmission(null)).toBeNull();
+    expect(resolveRefForSubmission(null, null)).toBeNull();
+    expect(resolveRefForSubmission(undefined, undefined)).toBeNull();
   });
 });
 

@@ -271,6 +271,32 @@ export async function recordRefTracking(
     .first<RefTracking>())!;
 }
 
+/**
+ * その友だちが**直近に踏んだ ref** を返す（ラストタッチ）。
+ *
+ * `friends.ref_code` はファーストタッチで上書きしないため、
+ * 「この人が今回どの配布先URLから来たか」には使えない。
+ * ref_tracking には ref を踏むたびに行が入るので、その最新行を見る。
+ *
+ * 専用カラムを持たない理由：同じ情報がこのテーブルに既にあり、
+ * 履歴も残るため（カラムを足すと二重管理になる）。
+ */
+export async function getLatestRefCodeByFriend(
+  db: D1Database,
+  friendId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT ref_code FROM ref_tracking
+        WHERE friend_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1`,
+    )
+    .bind(friendId)
+    .first<{ ref_code: string }>();
+  return row?.ref_code ?? null;
+}
+
 export async function getRefTrackingWithClickIds(
   db: D1Database,
   friendId: string,
