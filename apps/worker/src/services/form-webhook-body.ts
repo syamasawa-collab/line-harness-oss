@@ -26,10 +26,8 @@
 export interface WebhookRefInfo {
   /** 今回の流入元。ラストタッチ優先 */
   ref?: string | null;
-  /** 流入元の表示名（例「実態調査2026 配布先12」）。UUIDのままでは読めないため */
+  /** 流入元の表示名（例「東京都飲食業組合」）。UUIDのままでは読めないため */
   refName?: string | null;
-  /** ファーストタッチ。獲得元の分析用に別項目で残す */
-  refFirst?: string | null;
 }
 
 export function buildWebhookBody(
@@ -39,7 +37,6 @@ export function buildWebhookBody(
   const extra: Record<string, unknown> = {};
   if (refInfo?.ref) extra.ref = refInfo.ref;
   if (refInfo?.refName) extra.ref_name = refInfo.refName;
-  if (refInfo?.refFirst) extra.ref_first = refInfo.refFirst;
 
   if (Object.keys(extra).length === 0) return submissionData;
   // 付加情報を先に置くことで、同名の設問があれば回答側が勝つ
@@ -53,8 +50,7 @@ export function buildWebhookBody(
 export function resolveRefForSubmission(friend: {
   ref_code?: string | null;
   last_ref_code?: string | null;
-} | null | undefined): { ref: string | null; refFirst: string | null } {
-  if (!friend) return { ref: null, refFirst: null };
-  const first = friend.ref_code ?? null;
-  return { ref: friend.last_ref_code ?? first, refFirst: first };
+} | null | undefined): string | null {
+  if (!friend) return null;
+  return friend.last_ref_code ?? friend.ref_code ?? null;
 }

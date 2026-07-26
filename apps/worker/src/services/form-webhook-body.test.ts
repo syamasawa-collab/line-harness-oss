@@ -9,47 +9,35 @@ import { buildWebhookBody, resolveRefForSubmission } from './form-webhook-body.j
 const ANSWERS = { likert_a: '5', respondent_name: '山澤修平', store_count: '3' };
 
 describe('resolveRefForSubmission', () => {
-  it('ラストタッチを優先する（今回どの配布先URLから来たか）', () => {
+  it('ラストタッチを使う（今回どの配布先URLから来たか）', () => {
     expect(
       resolveRefForSubmission({ ref_code: 'first-touch', last_ref_code: 'this-click' }),
-    ).toEqual({ ref: 'this-click', refFirst: 'first-touch' });
+    ).toBe('this-click');
   });
 
   it('ラストタッチが無ければファーストタッチで代用する', () => {
     // ラストタッチの記録を始める前に来た人のため
-    expect(
-      resolveRefForSubmission({ ref_code: 'first-touch', last_ref_code: null }),
-    ).toEqual({ ref: 'first-touch', refFirst: 'first-touch' });
+    expect(resolveRefForSubmission({ ref_code: 'first-touch', last_ref_code: null })).toBe(
+      'first-touch',
+    );
   });
 
   it('どちらも無ければ null', () => {
-    expect(resolveRefForSubmission({ ref_code: null, last_ref_code: null })).toEqual({
-      ref: null,
-      refFirst: null,
-    });
-    expect(resolveRefForSubmission(null)).toEqual({ ref: null, refFirst: null });
+    expect(resolveRefForSubmission({ ref_code: null, last_ref_code: null })).toBeNull();
+    expect(resolveRefForSubmission(null)).toBeNull();
   });
 });
 
 describe('buildWebhookBody', () => {
   it('流入元を足す。回答は変えない', () => {
-    const body = buildWebhookBody(ANSWERS, {
-      ref: 'ref-12',
-      refName: '実態調査2026 配布先12',
-      refFirst: 'ref-old',
-    });
-    expect(body).toEqual({
-      ...ANSWERS,
-      ref: 'ref-12',
-      ref_name: '実態調査2026 配布先12',
-      ref_first: 'ref-old',
-    });
+    const body = buildWebhookBody(ANSWERS, { ref: 'ref-12', refName: '東京都飲食業組合' });
+    expect(body).toEqual({ ...ANSWERS, ref: 'ref-12', ref_name: '東京都飲食業組合' });
   });
 
   it('流入元が無ければ回答オブジェクトをそのまま返す（構造も同一）', () => {
     expect(buildWebhookBody(ANSWERS, null)).toBe(ANSWERS);
     expect(buildWebhookBody(ANSWERS, undefined)).toBe(ANSWERS);
-    expect(buildWebhookBody(ANSWERS, { ref: null, refName: null, refFirst: null })).toBe(ANSWERS);
+    expect(buildWebhookBody(ANSWERS, { ref: null, refName: null })).toBe(ANSWERS);
   });
 
   it('空文字は載せない', () => {

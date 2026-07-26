@@ -377,7 +377,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
       if (friendId) {
         try {
           const friend = await getFriendById(c.env.DB, friendId);
-          const { ref, refFirst } = resolveRefForSubmission(friend);
+          const ref = resolveRefForSubmission(friend);
           // UUID のままでは読めないので、配布先の表示名も引く
           let refName: string | null = null;
           if (ref) {
@@ -385,7 +385,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
             const link = await getTrackedLinkById(c.env.DB, ref);
             refName = link?.name ?? null;
           }
-          refInfo = { ref, refName, refFirst };
+          refInfo = { ref, refName };
         } catch (err) {
           console.error('ref lookup failed (continuing):', err);
         }
