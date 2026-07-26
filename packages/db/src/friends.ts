@@ -9,6 +9,11 @@ export interface Friend {
   user_id: string | null;
   line_account_id: string | null;
   metadata: string;
+  /**
+   * 流入元。最初にゲート／リンクを踏んだときの ref を1回だけ記録する
+   * （003_entry_routes.sql で追加。以降は上書きしない＝ファーストタッチ）。
+   */
+  ref_code: string | null;
   first_tracked_link_id: string | null;
   created_at: string;
   updated_at: string;

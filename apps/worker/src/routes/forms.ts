@@ -14,6 +14,7 @@ import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
 import { addTagToFriend, removeTagFromFriend, enrollFriendInScenario } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { pickMetadataToSave, parseMetadataFields } from '../services/form-metadata.js';
+import { buildWebhookBody } from '../services/form-webhook-body.js';
 import { parseTagRules, resolveTagRules } from '../services/form-tag-rules.js';
 import type {
   Form as DbForm,
@@ -366,7 +367,18 @@ forms.post('/api/forms/:id/submit', async (c) => {
     delete submissionData._skipWebhook;
     let webhookData: Record<string, unknown> | null = null;
     if (form.on_submit_webhook_url && !skipWebhook) {
-      const webhookResult = await callFormWebhook(form, submissionData);
+      // 流入元を1つだけ添える。取得に失敗しても送信は止めない
+      // （集計用の付加情報のために回答を落とすのは本末転倒なため）。
+      let refCode: string | null = null;
+      if (friendId) {
+        try {
+          const friend = await getFriendById(c.env.DB, friendId);
+          refCode = friend?.ref_code ?? null;
+        } catch (err) {
+          console.error('ref_code lookup failed (continuing):', err);
+        }
+      }
+      const webhookResult = await callFormWebhook(form, submissionData, refCode);
       webhookData = webhookResult.data as Record<string, unknown> | null;
       if (!webhookResult.passed) {
         // Webhook rejected — send fail message and stop
@@ -693,6 +705,8 @@ forms.post('/api/forms/:id/submit', async (c) => {
 async function callFormWebhook(
   form: DbForm,
   submissionData: Record<string, unknown>,
+  /** 流入元。集計用に本文へ足すだけで、回答の値も構造も変えない */
+  refCode?: string | null,
 ): Promise<{ passed: boolean; data: unknown }> {
   if (!form.on_submit_webhook_url) return { passed: true, data: null };
 
@@ -720,7 +734,7 @@ async function callFormWebhook(
       method: isGet ? 'GET' : 'POST',
       headers,
       signal: controller.signal,
-      ...(isGet ? {} : { body: JSON.stringify(submissionData) }),
+      ...(isGet ? {} : { body: JSON.stringify(buildWebhookBody(submissionData, refCode)) }),
     });
     clearTimeout(timeout);
 
