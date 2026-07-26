@@ -97,6 +97,16 @@ function serialize(row: LauncherRow, origin: string) {
   };
 }
 
+/**
+ * ページ最上部に出す発行元のロゴ。
+ *
+ * 配布URLを踏んだ人が最初に見る画面なので、誰からの依頼かが一目で分かる方が
+ * 開封・回答につながる（見覚えのないページはそれだけで離脱する）。
+ * 画像は R2 に置いてあり、同一オリジンから配信される。
+ */
+const BRAND_LOGO_URL = 'https://line-harness.shokudanren.workers.dev/images/a056a535-bdf8-4607-b216-7be4375dd215.png';
+const BRAND_LOGO_ALT = '一般社団法人 日本飲食団体連合会';
+
 const DEFAULT_HEADLINE = 'アンケートのご協力をお願いします';
 const DEFAULT_BUTTON = 'LINEで回答する';
 
@@ -140,18 +150,23 @@ function renderPage(row: LauncherRow, origin: string): string {
 <meta name="robots" content="noindex">
 ${ogTags}
 <style>
-  :root { color-scheme: light dark; }
+  /* 白背景に固定する。端末のダークモードで配色が反転すると、ロゴ（濃色の文字を
+     含む）が沈み、発行元が読み取れなくなるため。 */
+  :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 24px 20px 40px;
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
-    background: #f7f8fa; color: #1f2328; line-height: 1.75;
+    background: #fff; color: #1f2328; line-height: 1.75;
     display: flex; justify-content: center;
   }
   .wrap { width: 100%; max-width: 460px; }
   .card {
     background: #fff; border-radius: 14px; padding: 24px 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .brand { text-align: center; margin: 0 0 18px; }
+  .brand img {
+    width: 168px; max-width: 60%; height: auto; display: inline-block;
   }
   h1 { font-size: 19px; line-height: 1.6; margin: 0 0 14px; }
   p { font-size: 14.5px; margin: 0 0 14px; color: #3c4149; }
@@ -165,16 +180,11 @@ ${ogTags}
     margin-top: 20px; padding-top: 16px; border-top: 1px solid #e9ecef;
     font-size: 12px; color: #8a9099;
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #14161a; color: #e6e8eb; }
-    .card { background: #1c1f24; box-shadow: none; }
-    p { color: #c3c8cf; }
-    .note { border-top-color: #2b3038; }
-  }
 </style>
 </head><body>
 <div class="wrap">
   <div class="card">
+    <p class="brand"><img src="${BRAND_LOGO_URL}" alt="${BRAND_LOGO_ALT}" width="462" height="136"></p>
     <h1>${headline}</h1>
     ${body ? `<p>${body}</p>` : ''}
     <a class="btn" href="${href}">${label}</a>
