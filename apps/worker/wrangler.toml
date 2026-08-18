@@ -7,7 +7,7 @@ workers_dev = true
 # ═══════════════════════════════════════════════════════════════
 # デフォルト環境
 # ═══════════════════════════════════════════════════════════════
-account_id = "32f0604527684aab4d27b5eb4d3d759e"
+account_id = "YOUR_ACCOUNT_ID"
 
 [assets]
 directory = "dist/client"
@@ -16,7 +16,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "line-harness"
-database_id = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
+database_id = "YOUR_D1_DATABASE_ID"
 
 [[r2_buckets]]
 binding = "IMAGES"
@@ -29,18 +29,18 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
 WORKER_NAME = "line-harness"
 ADMIN_PAGES_PROJECT = "line-harness-admin"
 LIFF_PAGES_PROJECT = "line-harness-liff"
-D1_DATABASE_ID = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
+D1_DATABASE_ID = "YOUR_D1_DATABASE_ID"
 MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json"
 WORKER_PUBLIC_URL = "https://line-harness-oss.n-akiyama.workers.dev"
 ADMIN_PUBLIC_URL = "https://line-harness-admin.pages.dev"
 LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
-CF_ACCOUNT_ID = "32f0604527684aab4d27b5eb4d3d759e"
+CF_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
 
 # ═══════════════════════════════════════════════════════════════
 # 本番環境
 # ═══════════════════════════════════════════════════════════════
 [env.production]
-account_id = "32f0604527684aab4d27b5eb4d3d759e"
+account_id = "YOUR_ACCOUNT_ID"
 
 [env.production.assets]
 directory = "dist/client"
@@ -49,7 +49,7 @@ binding = "ASSETS"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "line-harness"
-database_id = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
+database_id = "YOUR_D1_DATABASE_ID"
 
 [[env.production.r2_buckets]]
 binding = "IMAGES"
@@ -62,9 +62,9 @@ crons = ["*/5 * * * *", "0 */6 * * *"]
 WORKER_NAME = "line-harness"
 ADMIN_PAGES_PROJECT = "line-harness-admin"
 LIFF_PAGES_PROJECT = "line-harness-liff"
-D1_DATABASE_ID = "8ce39739-ef4f-43e7-8b06-ada4152f1965"
+D1_DATABASE_ID = "YOUR_D1_DATABASE_ID"
 MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json"
 WORKER_PUBLIC_URL = "https://line-harness-oss.n-akiyama.workers.dev"
 ADMIN_PUBLIC_URL = "https://line-harness-admin.pages.dev"
 LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
-CF_ACCOUNT_ID = "32f0604527684aab4d27b5eb4d3d759e"
+CF_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
